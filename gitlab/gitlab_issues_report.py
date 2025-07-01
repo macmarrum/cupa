@@ -62,9 +62,9 @@ epic_to_ancestry = {}
 def get_all_issues():
     cursor = None
     query = '''
-    query($fullPath: ID!, $updateAfter: Time, $after: String) {
+    query($fullPath: ID!, $updatedAfter: Time, $after: String) {
       project(fullPath: $fullPath) {
-        issues(first: 100, updateAfter: $updateAfter, after: $after, sort: UPDATED_DESC) {
+        issues(first: 100, updatedAfter: $updatedAfter, after: $after, sort: UPDATED_DESC) {
           pageInfo { hasNextPage endCursor }
           nodes {
             projectId
