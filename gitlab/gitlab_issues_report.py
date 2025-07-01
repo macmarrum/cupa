@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
+import os
 import sys
 import json
 import tomllib
@@ -41,6 +42,9 @@ AFTER_ISO = conf['gitlab']['after_iso']
 BEFORE_ISO = conf['gitlab']['before_iso']
 START_DATE_UTC = datetime.fromisoformat(AFTER_ISO).astimezone(timezone.utc)
 END_DATE_UTC = datetime.fromisoformat(BEFORE_ISO).astimezone(timezone.utc)
+
+if conf.get('requests_ca_bundle'):
+    os.environ['REQUESTS_CA_BUNDLE'] = conf['requests_ca_bundle']
 
 workdir_path = Path(WORK_DIR)
 log = Logger(Path(LOG_SQLITE))

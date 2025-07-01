@@ -1,6 +1,7 @@
 
 work_dir = ''
 import_paths = ['']
+requests_ca_bundle = ''
 
 [log]
 sqlite_path = ''
