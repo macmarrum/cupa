@@ -25,6 +25,7 @@ ACTION_TO_ICON = {
     'add': 'emoji-1F331',  # cross mark
     'remove': 'emoji-274C',  # seedling
 }
+ISSUE_ICON = 'emoji-2139'
 ITER_EVENTS = '@iter-events'
 
 issue_iter_evs_fetched = False
@@ -271,6 +272,7 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
     iter_evs = issue_node['iteration_events']
     current[issue_id] = {
         '@core': f"#{issue_node['iid']} {issue_node['title']}",
+        '@icons': [ISSUE_ICON],
         '@attributes': {
             'project_id': int(issue_node['project_id']),
             'preStashTags': json.dumps(issue_node['labels']),
