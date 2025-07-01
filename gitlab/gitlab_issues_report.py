@@ -74,7 +74,7 @@ def get_all_issues():
             title
             closedAt
             labels(first: 10) { nodes { title } }
-            assignees { nodes { username } }
+            assignees { nodes { name } }
             epic {
               id
               iid
