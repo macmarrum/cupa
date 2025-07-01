@@ -18,7 +18,7 @@ with me.with_suffix('.toml').open('br') as fi:
 for import_path in conf['import_paths']:
     sys.path.insert(0, import_path)
 from freeplane_remote_import_json import import_json
-from sqlitelogger import Logger
+from sqlite_logger import Logger
 
 ACTION_TO_ICON = {
     'add': 'emoji-1F331',  # cross mark
