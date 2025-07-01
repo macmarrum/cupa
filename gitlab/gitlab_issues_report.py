@@ -4,7 +4,7 @@
 import sys
 import json
 import tomllib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,9 +14,6 @@ me = Path(__file__)
 sys.path.insert(0, me.parent.as_posix())
 from freeplane_repote_import_json import import_json
 from sqlitelogger import Logger
-
-tmp = Path('/home/m/tmp')
-log = Logger(tmp / 'gitlab-log.sqlite')
 
 with me.with_suffix('.toml').open('br') as fi:
     conf = tomllib.load(fi)
@@ -29,18 +26,24 @@ ITER_EVENTS = '@iter-events'
 
 issue_iter_evs_fetched = False
 
+WORK_DIR = conf['work_dir']
+LOG_SQLITE = conf['log']['sqlite']
+
 GITLAB_URL = conf['gitlab']['url']
 GITLAB_GRAPHQL_ENDPOINT = f"{GITLAB_URL}/api/graphql"
 GITLAB_REST_ENDPOINT = f"{GITLAB_URL}/api/v4"
 GITLAB_PRIVATE_TOKEN = conf['gitlab']['private_token']
 PROJECT_FULL_PATH = conf['gitlab']['project_full_path']
+
 AFTER_ISO = conf['gitlab']['issues']['after_iso']
 BEFORE_ISO = conf['gitlab']['issues']['before_iso']
-
 START_DATE_UTC = datetime.fromisoformat(AFTER_ISO).astimezone(timezone.utc)
 END_DATE_UTC = datetime.fromisoformat(BEFORE_ISO).astimezone(timezone.utc)
 
-epic_cache_json = tmp / 'epic_cache.json'
+workdir_path = Path(WORK_DIR)
+log = Logger(Path(LOG_SQLITE))
+
+epic_cache_json = workdir_path / 'epic_cache.json'
 try:
     with epic_cache_json.open('r') as fi:
         epic_cache = json.load(fi)
@@ -283,7 +286,7 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
 
 def main():
     log.info('Start query')
-    issue_cache_json = tmp / 'issue_cache.json'
+    issue_cache_json = workdir_path / 'issue_cache.json'
     try:
         with issue_cache_json.open('r') as fi:
             issues = json.load(fi)
@@ -298,7 +301,7 @@ def main():
     if issue_iter_evs_fetched:
         with issue_cache_json.open('w') as fo:
             json.dump(issues, fo, indent=2)
-    gitlab_export_freeplane_json = tmp / 'gitlab-export-freeplane.json'
+    gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
     log.info(f"Save to {gitlab_export_freeplane_json}")
     with gitlab_export_freeplane_json.open('w') as fo:
         json.dump(freeplane_hierarchy, fo, indent=2)
