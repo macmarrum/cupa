@@ -1,0 +1,12 @@
+
+work_dir = ''
+
+[log]
+sqlite_path = ''
+
+[gitlab]
+url = ''
+private_token = ''
+project_full_path = ''
+after_iso = ''
+before_iso = ''
