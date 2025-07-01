@@ -1,6 +1,6 @@
 
 work_dir = ''
-insert_paths = ['']
+import_paths = ['']
 
 [log]
 sqlite_path = ''
