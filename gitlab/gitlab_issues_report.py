@@ -27,7 +27,7 @@ ITER_EVENTS = '@iter-events'
 issue_iter_evs_fetched = False
 
 WORK_DIR = conf['work_dir']
-LOG_SQLITE = conf['log']['sqlite']
+LOG_SQLITE = conf['log']['sqlite_path']
 
 GITLAB_URL = conf['gitlab']['url']
 GITLAB_GRAPHQL_ENDPOINT = f"{GITLAB_URL}/api/graphql"
@@ -35,8 +35,8 @@ GITLAB_REST_ENDPOINT = f"{GITLAB_URL}/api/v4"
 GITLAB_PRIVATE_TOKEN = conf['gitlab']['private_token']
 PROJECT_FULL_PATH = conf['gitlab']['project_full_path']
 
-AFTER_ISO = conf['gitlab']['issues']['after_iso']
-BEFORE_ISO = conf['gitlab']['issues']['before_iso']
+AFTER_ISO = conf['gitlab']['after_iso']
+BEFORE_ISO = conf['gitlab']['before_iso']
 START_DATE_UTC = datetime.fromisoformat(AFTER_ISO).astimezone(timezone.utc)
 END_DATE_UTC = datetime.fromisoformat(BEFORE_ISO).astimezone(timezone.utc)
 
