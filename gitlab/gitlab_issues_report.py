@@ -169,7 +169,7 @@ def filter_iteration_events_to_range_and_repackage(iteration_events, start, end)
         if itr and is_iteration_in_range(itr, start, end):
             filtered_events.append(dict(
                 id=iter_ev['id'],
-                username=iter_ev['user']['username'],
+                user_name=iter_ev['user']['name'],
                 created_at=iter_ev['created_at'],
                 action=iter_ev['action'],
                 start_date=itr['start_date'],
@@ -289,7 +289,7 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
             '@core': f"{iev['start_date']} - {iev['due_date']}",
             '@icons': [ACTION_TO_ICON.get(iev['action'])],
             '@attributes': {
-                'user': iev['username'],
+                'user': iev['user_name'],
                 'created_at': iev['created_at'],
                 'action': iev['action'],
             }
