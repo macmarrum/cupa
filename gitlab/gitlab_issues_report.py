@@ -104,8 +104,7 @@ def get_all_issues():
 
 
 def run_graphql_query(query, variables):
-    log.debug(f"query: {query!r}")
-    log.debug(f"variables: {variables!r}")
+    # log.debug(f"query: {query!r} | variables: {variables!r}")
     headers = {'Authorization': f"Bearer {GITLAB_PRIVATE_TOKEN}"}
     response = session.post(
         GITLAB_GRAPHQL_ENDPOINT,
@@ -119,7 +118,7 @@ def run_graphql_query(query, variables):
     if 'errors' in result:
         log.error(f"GraphQL errors: {result['errors']}")
         log.error(query)
-        log.error(variables)
+        log.error(str(variables))
         return None
     return result['data']
 
