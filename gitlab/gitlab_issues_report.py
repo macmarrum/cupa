@@ -281,9 +281,11 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
         current[issue_id]['@style'] = {'name': style_name}
     # iteration events as issue children in Freeplane
     current[issue_id] |= {
-        f"{iev['start_date']} - {iev['due_date']}": {
+        f"{iev['id']}": {
+            '@core': f"{iev['start_date']} - {iev['due_date']}",
             '@icons': [ACTION_TO_ICON.get(iev['action'])],
             '@attributes': {
+                'user': iev['user']['username'],
                 'created_at': iev['created_at'],
                 'action': iev['action'],
             }
