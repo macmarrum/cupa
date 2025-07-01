@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import sys
 import json
+import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,6 +18,9 @@ from sqlitelogger import Logger
 tmp = Path('/home/m/tmp')
 log = Logger(tmp / 'gitlab-log.sqlite')
 
+with me.with_suffix('.toml').open('br') as fi:
+    conf = tomllib.load(fi)
+
 ACTION_TO_ICON = {
     'add': 'emoji-1F331',  # cross mark
     'remove': 'emoji-274C',  # seedling
@@ -25,16 +29,16 @@ ITER_EVENTS = '@iter-events'
 
 issue_iter_evs_fetched = False
 
-GITLAB_URL = 'https://gitlab.com'
+GITLAB_URL = conf['gitlab']['url']
 GITLAB_GRAPHQL_ENDPOINT = f"{GITLAB_URL}/api/graphql"
 GITLAB_REST_ENDPOINT = f"{GITLAB_URL}/api/v4"
-GITLAB_PRIVATE_TOKEN = 'YOUR_PRIVATE_ACCESS_TOKEN'
-PROJECT_FULL_PATH = 'your-project-full-path'
+GITLAB_PRIVATE_TOKEN = conf['gitlab']['private_token']
+PROJECT_FULL_PATH = conf['gitlab']['project_full_path']
+AFTER_ISO = conf['gitlab']['issues']['after_iso']
+BEFORE_ISO = conf['gitlab']['issues']['before_iso']
 
-START_DATE_UTC = datetime(2025, 4, 1, 0, 0, 0, tzinfo=timezone.utc)
-END_DATE_UTC = datetime(2025, 7, 1, 0, 0, 0, tzinfo=timezone.utc)
-AFTER_ISO = START_DATE_UTC.isoformat()
-BEFORE_ISO = END_DATE_UTC.isoformat()
+START_DATE_UTC = datetime.fromisoformat(AFTER_ISO).astimezone(timezone.utc)
+END_DATE_UTC = datetime.fromisoformat(BEFORE_ISO).astimezone(timezone.utc)
 
 epic_cache_json = tmp / 'epic_cache.json'
 try:
