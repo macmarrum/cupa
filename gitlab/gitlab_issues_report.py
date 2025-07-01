@@ -74,6 +74,7 @@ def get_all_issues():
             title
             closedAt
             labels(first: 10) { nodes { title } }
+            assignees { nodes { username } }
             epic {
               id
               iid
@@ -147,6 +148,7 @@ def get_freeplane_hierarchy(issues):
             'labels': [l['title'] for l in issue['labels']['nodes']],
             'project_id': issue['projectId'],
             'closedAt': issue['closedAt'],
+            'assignees': [node['name'] for node in issue['assignees']['nodes']],
             'iteration_events': iter_evs_in_range,
         }
         insert_into_hierarchy(hierarchy, epic_chain, issue_node)
@@ -274,7 +276,8 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
         '@core': f"#{issue_node['iid']} {issue_node['title']}",
         '@icons': [ISSUE_ICON],
         '@attributes': {
-            'project_id': int(issue_node['project_id']),
+            'assignees': json.dumps(issue_node['assignees']),
+            # 'project_id': int(issue_node['project_id']),
             'preStashTags': json.dumps(issue_node['labels']),
         },
     }
