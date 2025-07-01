@@ -12,7 +12,7 @@ import requests
 
 me = Path(__file__)
 sys.path.insert(0, me.parent.as_posix())
-from freeplane_repote_import_json import import_json
+from freeplane_remote_import_json import import_json
 from sqlitelogger import Logger
 
 with me.with_suffix('.toml').open('br') as fi:
@@ -97,7 +97,7 @@ def get_all_issues():
 
 
 def run_graphql_query(query, variables):
-    log.deubg(f"query: {query!r}")
+    log.debug(f"query: {query!r}")
     log.debug(f"variables: {variables!r}")
     headers = {'Authorization': f"Bearer {GITLAB_PRIVATE_TOKEN}"}
     response = session.post(
