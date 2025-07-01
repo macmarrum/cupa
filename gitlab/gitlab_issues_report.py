@@ -60,6 +60,14 @@ except FileNotFoundError:
 epic_to_ancestry = {}
 
 
+class f:
+    ATTRIBUTES = '@attributes'
+    CORE = '@core'
+    ICONS = '@icons'
+    PROPS = '@props'
+    STYLE = '@style'
+
+
 def get_all_issues():
     cursor = None
     query = '''
@@ -256,8 +264,8 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
         epic_id = str(epic['id'])
         if epic_id not in current:
             current[epic_id] = {
-                '@core': f"&{epic['iid']} {epic['title']}",
-                '@attributes': {
+                f.CORE: f"&{epic['iid']} {epic['title']}",
+                f.ATTRIBUTES: {
                     'group_path': epic['group_path'],
                     'group_id': epic['group_id'],
                     'preStashTags': json.dumps(epic['labels']),
@@ -265,17 +273,17 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
             }
             if closed_at := epic.get('closedAt', ''):
                 closed_at_dt = datetime.fromisoformat(closed_at)
-                current[epic_id]['@attributes']['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+                current[epic_id][f.ATTRIBUTES]['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
                 style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
-                current[epic_id]['@style'] = {'name': style_name}
+                current[epic_id][f.STYLE] = {'name': style_name}
         current = current[epic_id]
 
     issue_id = str(issue_node['id'])
     iter_evs = issue_node['iteration_events']
     current[issue_id] = {
-        '@core': f"#{issue_node['iid']} {issue_node['title']}",
-        '@icons': [ISSUE_ICON],
-        '@attributes': {
+        f.CORE: f"#{issue_node['iid']} {issue_node['title']}",
+        f.ICONS: [ISSUE_ICON],
+        f.ATTRIBUTES: {
             'assignees': json.dumps(issue_node['assignees']),
             # 'project_id': int(issue_node['project_id']),
             'preStashTags': json.dumps(issue_node['labels']),
@@ -283,15 +291,15 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
     }
     if closed_at := issue_node.get('closedAt', ''):
         closed_at_dt = datetime.fromisoformat(closed_at)
-        current[issue_id]['@attributes']['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+        current[issue_id][f.ATTRIBUTES]['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
         style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
-        current[issue_id]['@style'] = {'name': style_name}
+        current[issue_id][f.STYLE] = {'name': style_name}
     # iteration events as issue children in Freeplane
     current[issue_id] |= {
         f"{iev['id']}": {
-            '@core': f"{iev['start_date']} - {iev['due_date']}",
-            '@icons': [ACTION_TO_ICON.get(iev['action'])],
-            '@attributes': {
+            f.CORE: f"{iev['start_date']} - {iev['due_date']}",
+            f.ICONS: [ACTION_TO_ICON.get(iev['action'])],
+            f.ATTRIBUTES: {
                 'user': iev['user_name'],
                 'created_at': iev['created_at'],
                 'action': iev['action'],
@@ -299,7 +307,7 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
         } for iev in iter_evs
     }
     # fold children (iteration events)
-    current[issue_id]['@props'] = {'folded': True}
+    current[issue_id][f.PROPS] = {'folded': True}
 
 
 def main():
