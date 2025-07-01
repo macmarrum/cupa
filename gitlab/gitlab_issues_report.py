@@ -153,7 +153,7 @@ def get_freeplane_hierarchy(issues):
 
 
 def fetch_iteration_events_for_issue(projectId, issue_iid):
-    log.debug(f"fetch_iteration_events_for_issue({projectId}, {issue_iid}")
+    log.debug(f"fetch_iteration_events_for_issue({projectId}, {issue_iid})")
     url = f"{GITLAB_REST_ENDPOINT}/projects/{projectId}/issues/{issue_iid}/resource_iteration_events"
     headers = {'Authorization': f"Bearer {GITLAB_PRIVATE_TOKEN}"}
     resp = session.get(url, headers=headers)
