@@ -281,8 +281,7 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
     current[issue_id]['@props'] = {'folded': True}
 
 
-if __name__ == '__main__':
-    session = requests.session()
+def main():
     log.info('Start query')
     issue_cache_json = tmp / 'issue_cache.json'
     try:
@@ -306,3 +305,8 @@ if __name__ == '__main__':
     result = import_json(gitlab_export_freeplane_json)
     if result:
         log.info(f"Import result: {result}")
+
+
+if __name__ == '__main__':
+    session = requests.session()
+    main()
