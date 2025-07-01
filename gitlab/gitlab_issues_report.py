@@ -56,15 +56,16 @@ epic_to_ancestry = {}
 def get_all_issues():
     cursor = None
     query = '''
-    query($fullPath: ID!, $after: String) {
+    query($fullPath: ID!, $updateAfter: Time, $after: String) {
       project(fullPath: $fullPath) {
-        issues(first: 100, after: $after, sort: UPDATED_DESC) {
+        issues(first: 100, updateAfter: $updateAfter, after: $after, sort: UPDATED_DESC) {
           pageInfo { hasNextPage endCursor }
           nodes {
             projectId
             id
             iid
             title
+            closedAt
             labels(first: 10) { nodes { title } }
             epic {
               id
@@ -135,10 +136,10 @@ def get_freeplane_hierarchy(issues):
         _id = int(Path(gid.path).name)
         issue_node = {
             'id': _id,
-            'iid': int(issue['iid']),
+            'iid': issue['iid'],
             'title': issue['title'],
             'labels': [l['title'] for l in issue['labels']['nodes']],
-            'project_id': int(issue['projectId']),
+            'project_id': issue['projectId'],
             'closedAt': issue['closedAt'],
             'iteration_events': iter_evs_in_range,
         }
@@ -170,7 +171,7 @@ def filter_iteration_events_to_range_and_repackage(iteration_events, start, end)
 
 
 def is_iteration_in_range(iteration, start, end):
-    start_date = datetime.fromisoformat(iteration['startDate']).astimezone(timezone.utc)
+    start_date = datetime.fromisoformat(iteration['start_date']).astimezone(timezone.utc)
     return start <= start_date <= end
 
 
@@ -192,6 +193,7 @@ def get_epic_ancestry(group_path, epic_iid, epic_id):
                   id
                   iid
                   title
+                  closedAt
                   labels(first: 20) { nodes { title } }
                   group { id fullPath }
                   parent {
@@ -215,7 +217,8 @@ def get_epic_ancestry(group_path, epic_iid, epic_id):
             group_id_ = int(Path(gid.path).name)
             epic = {
                 'id': id_,
-                'iid': int(epic_data['iid']),
+                'iid': epic_data['iid'],
+                'closedAt': epic_data['closedAt'],
                 'title': epic_data['title'],
                 'group_id': group_id_,
                 'group_path': epic_data['group']['fullPath'],
@@ -228,11 +231,12 @@ def get_epic_ancestry(group_path, epic_iid, epic_id):
             # log.info(f"Cached epic: {cache_key}")
 
         ancestry.insert(0, epic)  # Build from root to leaf
-        epic_id = epic['id']
+        epic_id = epic['parent_id']
         epic_iid = epic['parent_iid']
         group_path = epic['parent_group_path']
         if not epic_id or not epic_iid or not group_path:
             break
+    epic_to_ancestry[epic_id] = ancestry
     return ancestry
 
 
@@ -250,10 +254,10 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
                 }
             }
             if closed_at := epic.get('closedAt', ''):
-                closed_at_dt = datetime.fromisoformat(closed_at).astimezone(timezone.utc)
+                closed_at_dt = datetime.fromisoformat(closed_at)
                 current[epic_id]['@attributes']['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
                 style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
-                current[epic_id]['@attributes']['@style'] = {'name': style_name}
+                current[epic_id]['@style'] = {'name': style_name}
         current = current[epic_id]
 
     issue_id = str(issue_node['id'])
@@ -266,10 +270,10 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
         },
     }
     if closed_at := issue_node.get('closedAt', ''):
-        closed_at_dt = datetime.fromisoformat(closed_at).astimezone(timezone.utc)
+        closed_at_dt = datetime.fromisoformat(closed_at)
         current[issue_id]['@attributes']['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
         style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
-        current[issue_id]['@attributes']['@style'] = {'name': style_name}
+        current[issue_id]['@style'] = {'name': style_name}
     # iteration events as issue children in Freeplane
     current[issue_id] |= {
         f"{iev['start_date']} - {iev['due_date']}": {
