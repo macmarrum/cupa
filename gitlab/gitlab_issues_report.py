@@ -50,13 +50,9 @@ if conf.get('requests_ca_bundle'):
 workdir_path = Path(WORK_DIR)
 log = Logger(Path(LOG_SQLITE))
 
+issue_cache_json = workdir_path / 'issue_cache.json'
 epic_cache_json = workdir_path / 'epic_cache.json'
-try:
-    with epic_cache_json.open('r') as fi:
-        epic_cache = json.load(fi)
-except FileNotFoundError:
-    epic_cache = {}
-
+epic_cache = {}
 epic_to_ancestry = {}
 
 
@@ -312,7 +308,11 @@ def insert_into_hierarchy(hierarchy, ancestry, issue_node):
 
 def main():
     log.info('Start query')
-    issue_cache_json = workdir_path / 'issue_cache.json'
+    try:
+        with epic_cache_json.open('r') as fi:
+            epic_cache = json.load(fi)
+    except FileNotFoundError:
+        pass
     try:
         with issue_cache_json.open('r') as fi:
             issues = json.load(fi)
