@@ -22,9 +22,10 @@ LEVEL_TO_NAME |= {
 class Logger:
     def __init__(self, sqlite_path: Path | PathLike | str):
         self._db = sqlite3.connect(sqlite_path)
+        self.create_table_log_if_not_exists()
         self.warning = self.warn
 
-    def create_table_log(self):
+    def create_table_log_if_not_exists(self):
         self._db.execute(dedent('''\
             CREATE TABLE IF NOT EXISTS log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
