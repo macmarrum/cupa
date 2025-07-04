@@ -284,7 +284,7 @@ def create_fp_report_of_issues_with_ancestry_for_period():
         with issue_cache_json.open('r') as fi:
             issue_nodes = json.load(fi)
     except FileNotFoundError:
-        issue_nodes = get_all_issues()
+        issue_nodes = fetch_issues_updated_after()
         with issue_cache_json.open('w') as fo:
             json.dump(issue_nodes, fo, indent=2)
     freeplane_hierarchy = {}
@@ -311,13 +311,15 @@ def create_fp_report_of_issues_with_ancestry_for_period():
     dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, gitlab_export_freeplane_json)
 
 
-def get_all_issues():
+def fetch_issues_updated_after(updated_after: str = None, project_full_path: str = None):
+    updated_after = updated_after or AFTER_ISO
+    project_full_path = project_full_path or PROJECT_FULL_PATH
     cursor = None
     all_issues = []
     while True:
         variables = {
-            'fullPath': PROJECT_FULL_PATH,
-            'updatedAfter': AFTER_ISO,
+            'fullPath': project_full_path,
+            'updatedAfter': updated_after,
             'after': cursor
         }
         data = run_graphql_query(q.issues_updated_after, variables)
