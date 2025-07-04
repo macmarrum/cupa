@@ -146,16 +146,6 @@ class q:
             }
             epic {
               id
-              iid
-              title
-              closedAt
-              labels(first: 20) { nodes { title } }
-              group { id fullPath }
-              parent {
-                id
-                iid
-                group { fullPath }
-              }
             }
           }
         }
@@ -319,25 +309,6 @@ def run_graphql_query(query, variables):
     return result['data']
 
 
-def build_freeplane_hierarchy(issue_nodes):
-    global issue_itr_events_fetched
-    freeplane_hierarchy = {}
-    for issue_node in issue_nodes:
-        if (iter_evs := issue_node.get(ITER_EVENTS)) is None:
-            iter_evs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
-            issue_node[ITER_EVENTS] = iter_evs
-            issue_itr_events_fetched = True
-        itr_event_recs_in_range = filter_itr_events_to_range_and_repackage(iter_evs, START_DATE_UTC, END_DATE_UTC)
-        if not itr_event_recs_in_range:
-            continue
-        epic_rec_ancestry = []
-        if epic := issue_node.get('epic'):
-            epic_rec_ancestry = get_epic_ancestry(epic['group']['fullPath'], epic['iid'], epic['id'])
-        issue_rec = IssueRecord.of(issue_node, itr_event_recs_in_range)
-        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
-    return freeplane_hierarchy
-
-
 def fetch_iteration_events_for_issue(project_id, issue_iid):
     log.debug(f"fetch_iteration_events_for_issue({project_id}, {issue_iid})")
     url = f"{GITLAB_REST_ENDPOINT}/projects/{project_id}/issues/{issue_iid}/resource_iteration_events"
@@ -348,7 +319,7 @@ def fetch_iteration_events_for_issue(project_id, issue_iid):
 
 
 def filter_itr_events_to_range_and_repackage(iteration_events, start, end):
-    filtered_event_recs = []
+    filtered_event_recs: list[IterationEventRecord] = []
     for itr_event in iteration_events:
         itr = itr_event.get('iteration')
         if itr and is_iteration_in_range(itr, start, end):
@@ -362,8 +333,8 @@ def is_iteration_in_range(iteration, start, end):
     return start <= start_date <= end
 
 
-def get_epic_ancestry(group_path, epic_iid, epic_gid):
-    log.debug(f"get_epic_ancestry({group_path}, {epic_iid}, {epic_gid})")
+def build_epic_rec_ancestry(group_path, epic_iid, epic_gid):
+    log.debug(f"build_epic_rec_ancestry({group_path}, {epic_iid}, {epic_gid})")
     if epic_rec_ancestry := epic_to_ancestry.get(epic_gid):
         return epic_rec_ancestry
     epic_rec_ancestry: list[EpicRecord] = []
@@ -390,7 +361,7 @@ def get_epic_ancestry(group_path, epic_iid, epic_gid):
     return epic_rec_ancestry
 
 
-def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain: list[EpicRecord], issue_rec: IssueRecord, ):
+def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain: list[EpicRecord], issue_rec: IssueRecord):
     current = freeplane_hierarchy
     for epic_rec in epic_rec_ancestry_chain:
         epic_id = epic_rec['gid']
@@ -441,31 +412,54 @@ def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain
 
 
 def main():
-    log.info('Start query')
+    global epic_cache
+    log.info('Start main')
     try:
         with epic_cache_json.open('r') as fi:
             epic_cache = json.load(fi)
     except FileNotFoundError:
         pass
+    create_fp_report_of_issues_with_ancestry_for_period()
+    # create_fp_report_of_issues_for_iterations()
+
+
+def create_fp_report_of_issues_with_ancestry_for_period():
+    global issue_itr_events_fetched
     try:
         with issue_cache_json.open('r') as fi:
-            issues = json.load(fi)
+            issue_nodes = json.load(fi)
     except FileNotFoundError:
-        issues = get_all_issues()
+        issue_nodes = get_all_issues()
         with issue_cache_json.open('w') as fo:
-            json.dump(issues, fo, indent=2)
-    freeplane_hierarchy = build_freeplane_hierarchy(issues)
+            json.dump(issue_nodes, fo, indent=2)
+    freeplane_hierarchy = {}
+    for issue_node in issue_nodes:
+        if epic := issue_node.get('epic'):
+            epic_rec_ancestry = build_epic_rec_ancestry(epic['group']['fullPath'], epic['iid'], epic['id'])
+        else:
+            epic_rec_ancestry = []
+        if (itr_events := issue_node.get(ITER_EVENTS)) is None:
+            itr_events = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
+            issue_node[ITER_EVENTS] = itr_events
+            issue_itr_events_fetched = True
+        itr_event_recs_in_range = filter_itr_events_to_range_and_repackage(itr_events, START_DATE_UTC, END_DATE_UTC)
+        issue_rec = IssueRecord.of(issue_node, itr_event_recs_in_range)
+        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
     if epic_cache:
         with epic_cache_json.open('w') as fo:
             json.dump(epic_cache, fo, indent=2)
     if issue_itr_events_fetched:
         with issue_cache_json.open('w') as fo:
-            json.dump(issues, fo, indent=2)
+            json.dump(issue_nodes, fo, indent=2)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
     log.info(f"Save to {gitlab_export_freeplane_json}")
-    with gitlab_export_freeplane_json.open('w') as fo:
+    dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, gitlab_export_freeplane_json)
+
+
+def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
+    with export_json.open('w') as fo:
         json.dump(freeplane_hierarchy, fo, indent=2)
-    result = import_json(gitlab_export_freeplane_json)
+    result = import_json(export_json)
     if result:
         log.info(f"Import result: {result}")
 
@@ -496,7 +490,8 @@ def fetch_current_iteration():
     return None
 
 
-def fetch_issues_for_iterations(iteration_gids: list[str], project_full_path: str = None):
+def fetch_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
+    iteration_gids = iteration_gids or [fetch_current_iteration()['id']]
     project_full_path = project_full_path or PROJECT_FULL_PATH
     variables = {'fullPath': project_full_path, 'iterationId': iteration_gids}
     data = run_graphql_query(q.issues_for_iterations, variables)
@@ -504,28 +499,33 @@ def fetch_issues_for_iterations(iteration_gids: list[str], project_full_path: st
     return issues
 
 
-def send_issues_for_iterations_to_freeplane(iteration_gids: list[str], project_full_path: str = None):
+def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
+    global issue_itr_events_fetched
     issue_nodes = fetch_issues_for_iterations(iteration_gids, project_full_path)
+    for issue_node in issue_nodes:
+        itr_event_recs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
+        issue_node[ITER_EVENTS] = itr_event_recs
+        issue_itr_events_fetched = True
     issues_for_iterations_json = workdir_path / 'issues_for_iterations.json'
     with issues_for_iterations_json.open('w') as fo:
         json.dump(issue_nodes, fo, indent=2)
     freeplane_hierarchy = {}
     for issue_node in issue_nodes:
-        if epic_node := issue_node.get('epic'):
-            epic_chain = [EpicRecord.of(epic_node)]
+        if issue_node.get('epic'):
+            epic_gid = issue_node['epic']['id']
+            epic_node = epic_cache[epic_gid]
+            if not epic_node:
+                data = run_graphql_query(q.epic_with_parent, {'fullPath': epic_node['group_path'], 'epicIid': epic_node['iid']})
+                epic_node = data.get('group', {}).get('epic')
+                epic_cache[epic_gid] = epic_node
+            epic_rec_ancestry = [EpicRecord.of(epic_node)]
         else:
-            epic_chain = []
-        itr = issue_node['iteration']
-        iteration_event_recs = [IterationEventRecord('?', '?', '?', '?', itr['startDate'], itr['dueDate'])]
-        issue_rec = IssueRecord.of(issue_node, iteration_event_recs)
-        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_chain, issue_rec)
+            epic_rec_ancestry = []
+        itr_event_recs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
+        issue_rec = IssueRecord.of(issue_node, itr_event_recs)
+        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
-    log.info(f"Save to {gitlab_export_freeplane_json}")
-    with gitlab_export_freeplane_json.open('w') as fo:
-        json.dump(freeplane_hierarchy, fo, indent=2)
-    result = import_json(gitlab_export_freeplane_json)
-    if result:
-        log.info(f"Import result: {result}")
+    dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, gitlab_export_freeplane_json)
 
 
 if __name__ == '__main__':
