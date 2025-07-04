@@ -476,8 +476,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
     for issue_node in issue_nodes:
         if issue_node.get('epic'):
             epic_gid = issue_node['epic']['id']
-            epic_node = epic_cache[epic_gid]
-            if not epic_node:
+            if not (epic_node := epic_cache.get(epic_gid)):
                 data = run_graphql_query(q.epic_with_parent, {'fullPath': epic_node['group_path'], 'epicIid': epic_node['iid']})
                 epic_node = data.get('group', {}).get('epic')
                 epic_cache[epic_gid] = epic_node
