@@ -144,6 +144,8 @@ class q:
             }
             epic {
               id
+              iid
+              group { fullPath }
             }
           }
         }
@@ -477,7 +479,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         if issue_node.get('epic'):
             epic_gid = issue_node['epic']['id']
             if not (epic_node := epic_cache.get(epic_gid)):
-                data = run_graphql_query(q.epic_with_parent, {'fullPath': epic_node['group_path'], 'epicIid': epic_node['iid']})
+                data = run_graphql_query(q.epic_with_parent, {'fullPath': issue_node['epic']['group']['fullPath'], 'epicIid': issue_node['epic']['iid']})
                 epic_node = data.get('group', {}).get('epic')
                 epic_cache[epic_gid] = epic_node
             epic_rec_ancestry = [EpicRecord.of(epic_node)]
