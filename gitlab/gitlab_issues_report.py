@@ -465,12 +465,10 @@ def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
 
 
 def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
-    global issue_itr_events_fetched
     issue_nodes = fetch_issues_for_iterations(iteration_gids, project_full_path)
     for issue_node in issue_nodes:
         itr_event_recs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
         issue_node[ITER_EVENTS] = itr_event_recs
-        issue_itr_events_fetched = True
     issues_for_iterations_json = workdir_path / 'issues_for_iterations.json'
     with issues_for_iterations_json.open('w') as fo:
         json.dump(issue_nodes, fo, indent=2)
