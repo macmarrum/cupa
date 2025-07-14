@@ -142,7 +142,7 @@ class q:
                 id
                 body
                 author {
-                  username
+                  name
                 }
                 createdAt
               }
