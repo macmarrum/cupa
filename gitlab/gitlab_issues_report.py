@@ -502,7 +502,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     # fold children of iteration events
     current[issue_id][f.iteration_events][f.PROPS] = {f.folded: True}
     # issue properties
-    current[issue_id][f.PROPS] = {f.detailsContentType: f.markdown, f.minimized: True if issue_rec['details'] else False, f.folded: True}
+    current[issue_id][f.PROPS] = {f.detailsContentType: f.markdown, f.minimized: True if issue_rec['description'] else False, f.folded: True}
 
 
 def format_date(date_or_str: datetime | str) -> str:
