@@ -74,6 +74,8 @@ class f:
     noteContentType = 'noteContentType'
     markdown = 'markdown'
     minimized = 'minimized'
+    minNodeWidth = 'minNodeWidth'
+    _10cm = '10 cm'
 
 
 class q:
@@ -129,6 +131,7 @@ class q:
             id
             iid
             title
+            weight
             closedAt
             description
             iteration { startDate dueDate }
@@ -244,6 +247,7 @@ class IssueRecord(DictLike):
     title: str
     description: str
     labels: list[str]
+    weight: int
     project_id: int
     closedAt: str
     assignees: list[str]
@@ -260,6 +264,7 @@ class IssueRecord(DictLike):
             title=issue_node['title'],
             description=issue_node.get('description'),
             labels=[l['title'] for l in issue_node['labels']['nodes']],
+            weight=issue_node.get('weight'),
             project_id=issue_node['projectId'],
             closedAt=issue_node['closedAt'],
             assignees=[node['name'] for node in issue_node['assignees']['nodes']],
@@ -460,6 +465,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
                 current[epic_id][f.ATTRIBUTES]['closedAt'] = format_date(closed_at_dt)
                 style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
                 current[epic_id][f.STYLE] = {'name': style_name}
+            current[epic_id].setdefault(f.STYLE, {})[f.minNodeWidth] = f._10cm
         current = current[epic_id]
     issue_id = issue_rec['id']
     current[issue_id] = {
@@ -474,11 +480,14 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
         current[issue_id][f.ATTRIBUTES]['assignees'] = json.dumps([format_name(nm) for nm in assignees])
     if labels := issue_rec['labels']:
         current[issue_id][f.ATTRIBUTES]['preStashTags'] = json.dumps(labels)
+    if weight := issue_rec['weight']:
+        current[issue_id][f.ATTRIBUTES]['weight'] = weight
     if closed_at := issue_rec['closedAt']:
         closed_at_dt = datetime.fromisoformat(closed_at)
         current[issue_id][f.ATTRIBUTES]['closedAt'] = format_date(closed_at_dt)
         style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
         current[issue_id][f.STYLE] = {'name': style_name}
+    current[issue_id].setdefault(f.STYLE, {})[f.minNodeWidth] = f._10cm
     # notes aka comments
     current[issue_id][f.comments] |= {
         f"{nt['id']}": {
