@@ -50,8 +50,8 @@ epic_to_ancestry = {}
 issue_itr_events_fetched = False
 
 ACTION_TO_ICON = {
-    'add': 'emoji-1F331',  # cross mark
-    'remove': 'emoji-274C',  # seedling
+    'add': 'emoji-2728',  # sparkles
+    'remove': 'emoji-274C',  # cross mark
 }
 FALLBACK_ACTION_ICON = 'emoji-1F33B'  # sunflower
 ISSUE_ICON = 'emoji-2139'
@@ -61,9 +61,13 @@ ITER_EVENTS = '@iter-events'
 class f:
     ATTRIBUTES = '@attributes'
     CORE = '@core'
+    DETAILS = '@details'
     ICONS = '@icons'
+    NOTE = '@note'
     PROPS = '@props'
     STYLE = '@style'
+    iteration_events = 'iteration_events'
+    notes = 'notes'
 
 
 class q:
@@ -135,6 +139,7 @@ class q:
             }
             notes {
               nodes {
+                id
                 body
                 author {
                   username
@@ -187,6 +192,24 @@ class DictLike:
 
 
 @dataclass(frozen=True)
+class NoteRecord(DictLike):
+    id: str
+    body: str
+    author_name: str
+    createdAt: str
+
+    @staticmethod
+    def of(note_node):
+        note_rec = NoteRecord(
+            id=note_node['id'],
+            body=note_node['body'],
+            author_name=note_node['author']['name'],
+            createdAt=note_node['createdAt'],
+        )
+        return note_rec
+
+
+@dataclass(frozen=True)
 class IterationEventRecord(DictLike):
     id: str
     user_name: str
@@ -197,7 +220,7 @@ class IterationEventRecord(DictLike):
 
     @staticmethod
     def of(itr_event):
-        itr_event_dto = IterationEventRecord(
+        itr_event_rec = IterationEventRecord(
             id=itr_event['id'],
             user_name=itr_event['user']['name'],
             created_at=itr_event['created_at'],
@@ -205,7 +228,7 @@ class IterationEventRecord(DictLike):
             start_date=itr_event['iteration']['start_date'],
             due_date=itr_event['iteration']['due_date'],
         )
-        return itr_event_dto
+        return itr_event_rec
 
 
 @dataclass(frozen=True)
@@ -213,27 +236,31 @@ class IssueRecord(DictLike):
     id: str
     iid: str
     title: str
+    description: str
     labels: list[str]
     project_id: int
     closedAt: str
     assignees: list[str]
     iteration_events: list[IterationEventRecord]
+    notes: list[NoteRecord]
 
     @staticmethod
-    def of(issue_node, iteration_event_dtos: list[IterationEventRecord]):
+    def of(issue_node, iteration_event_recs: list[IterationEventRecord], note_recs: list[NoteRecord] = None):
         gid = urlparse(issue_node['id'])
         _id = Path(gid.path).name
-        issue_dto = IssueRecord(
+        issue_rec = IssueRecord(
             id=_id,
             iid=issue_node['iid'],
             title=issue_node['title'],
+            description=issue_node.get('description'),
             labels=[l['title'] for l in issue_node['labels']['nodes']],
             project_id=issue_node['projectId'],
             closedAt=issue_node['closedAt'],
             assignees=[node['name'] for node in issue_node['assignees']['nodes']],
-            iteration_events=iteration_event_dtos,
+            iteration_events=iteration_event_recs,
+            notes=note_recs or [],
         )
-        return issue_dto
+        return issue_rec
 
 
 @dataclass(frozen=True)
@@ -276,8 +303,8 @@ def main():
             epic_cache = json.load(fi)
     except FileNotFoundError:
         pass
-    create_fp_report_of_issues_with_ancestry_for_period()
-    # create_fp_report_of_issues_for_iterations()
+    # create_fp_report_of_issues_with_ancestry_for_period()
+    create_fp_report_of_issues_for_iterations()
 
 
 def create_fp_report_of_issues_with_ancestry_for_period():
@@ -301,7 +328,7 @@ def create_fp_report_of_issues_with_ancestry_for_period():
             issue_itr_events_fetched = True
         itr_event_recs_in_range = filter_itr_events_to_range_and_repackage(itr_events, START_DATE_UTC, END_DATE_UTC)
         issue_rec = IssueRecord.of(issue_node, itr_event_recs_in_range)
-        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
+        insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
     if epic_cache:
         with epic_cache_json.open('w') as fo:
             json.dump(epic_cache, fo, indent=2)
@@ -408,7 +435,7 @@ def is_iteration_in_range(iteration, start, end):
     return start <= start_date <= end
 
 
-def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain: list[EpicRecord], issue_rec: IssueRecord):
+def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain: list[EpicRecord], issue_rec: IssueRecord):
     current = freeplane_hierarchy
     for epic_rec in epic_rec_ancestry_chain:
         epic_id = epic_rec['gid']
@@ -430,20 +457,23 @@ def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain
     issue_id = issue_rec['id']
     current[issue_id] = {
         f.CORE: f"#{issue_rec['iid']} {issue_rec['title']}",
+        f.NOTE: issue_rec['description'],
         f.ICONS: [ISSUE_ICON],
         f.ATTRIBUTES: {
             'assignees': json.dumps(issue_rec['assignees']),
             # 'project_id': int(issue_node['project_id']),
             'preStashTags': json.dumps(issue_rec['labels']),
         },
+        f.iteration_events: {},
+        f.notes: {},
     }
     if closed_at := issue_rec['closedAt']:
         closed_at_dt = datetime.fromisoformat(closed_at)
         current[issue_id][f.ATTRIBUTES]['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
         style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
         current[issue_id][f.STYLE] = {'name': style_name}
-    # iteration events as issue children in Freeplane
-    current[issue_id] |= {
+    # iteration events
+    current[issue_id][f.iteration_events] |= {
         f"{iev['id']}": {
             f.CORE: f"{iev['start_date']} - {iev['due_date']}",
             f.ICONS: [ACTION_TO_ICON.get(iev['action'], FALLBACK_ACTION_ICON)],
@@ -454,8 +484,17 @@ def insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry_chain
             }
         } for iev in issue_rec['iteration_events']
     }
-    # fold children (iteration events)
-    current[issue_id][f.PROPS] = {'folded': True}
+    # fold children of iteration events
+    current[issue_id][f.iteration_events][f.PROPS] = {'folded': True}
+    # notes aka comments
+    current[issue_id][f.notes] |= {
+        f"{nt['id']}": {
+            f.CORE: f"{nt['createdAt']} {nt['author_name']}",
+            f.NOTE: nt['body'],
+        } for nt in issue_rec['notes']
+    }
+    # fold children of notes
+    current[issue_id][f.notes][f.PROPS] = {'folded': True}
 
 
 def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
@@ -474,7 +513,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
     issues_for_iterations_json = workdir_path / 'issues_for_iterations.json'
     with issues_for_iterations_json.open('w') as fo:
         json.dump(issue_nodes, fo, indent=2)
-    freeplane_hierarchy = {}
+    freeplane_json_dct = {}
     for issue_node in issue_nodes:
         if issue_node.get('epic'):
             epic_gid = issue_node['epic']['id']
@@ -486,10 +525,11 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         else:
             epic_rec_ancestry = []
         itr_event_recs = [IterationEventRecord.of(itr_event) for itr_event in issue_node[ITER_EVENTS]]
-        issue_rec = IssueRecord.of(issue_node, itr_event_recs)
-        insert_into_freeplane_hierarchy(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
+        note_recs = [NoteRecord.of(note_node) for note_node in issue_node['notes']['nodes']]
+        issue_rec = IssueRecord.of(issue_node, itr_event_recs, note_recs)
+        insert_into_freeplane_json_dct(freeplane_json_dct, epic_rec_ancestry, issue_rec)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
-    dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, gitlab_export_freeplane_json)
+    dump_json_to_disk_and_import_to_freeplane(freeplane_json_dct, gitlab_export_freeplane_json)
 
 
 def fetch_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
