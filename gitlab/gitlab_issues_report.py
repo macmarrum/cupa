@@ -66,8 +66,13 @@ class f:
     NOTE = '@note'
     PROPS = '@props'
     STYLE = '@style'
-    iteration_events = 'iteration_events'
-    notes = 'notes'
+    folded = 'folded'
+    iteration_events = 'iteration events'
+    comments = 'comments'
+    detailsContentType = 'detailsContentType'
+    noteContentType = 'noteContentType'
+    markdown = 'markdown'
+    minimized = 'minimized'
 
 
 class q:
@@ -450,28 +455,38 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
             }
             if closed_at := epic_rec['closedAt']:
                 closed_at_dt = datetime.fromisoformat(closed_at)
-                current[epic_id][f.ATTRIBUTES]['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+                current[epic_id][f.ATTRIBUTES]['closedAt'] = format_date(closed_at_dt)
                 style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
                 current[epic_id][f.STYLE] = {'name': style_name}
         current = current[epic_id]
     issue_id = issue_rec['id']
     current[issue_id] = {
         f.CORE: f"#{issue_rec['iid']} {issue_rec['title']}",
-        f.NOTE: issue_rec['description'],
+        f.DETAILS: issue_rec['description'],
         f.ICONS: [ISSUE_ICON],
         f.ATTRIBUTES: {
             'assignees': json.dumps(issue_rec['assignees']),
             # 'project_id': int(issue_node['project_id']),
             'preStashTags': json.dumps(issue_rec['labels']),
         },
+        f.comments: {},
         f.iteration_events: {},
-        f.notes: {},
     }
     if closed_at := issue_rec['closedAt']:
         closed_at_dt = datetime.fromisoformat(closed_at)
-        current[issue_id][f.ATTRIBUTES]['closedAt'] = closed_at_dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+        current[issue_id][f.ATTRIBUTES]['closedAt'] = format_date(closed_at_dt)
         style_name = '!NextAction.Closed' if closed_at_dt < END_DATE_UTC else '!WaitingFor.Closed'
         current[issue_id][f.STYLE] = {'name': style_name}
+    # notes aka comments
+    current[issue_id][f.comments] |= {
+        f"{nt['id']}": {
+            f.CORE: f"{format_date(nt['createdAt'])} | {nt['author_name']}",
+            f.DETAILS: nt['body'],
+            f.PROPS: {f.detailsContentType: f.markdown, f.minimized: True}
+        } for nt in issue_rec['notes']
+    }
+    # fold children of notes
+    current[issue_id][f.comments][f.PROPS] = {f.folded: True}
     # iteration events
     current[issue_id][f.iteration_events] |= {
         f"{iev['id']}": {
@@ -479,22 +494,24 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
             f.ICONS: [ACTION_TO_ICON.get(iev['action'], FALLBACK_ACTION_ICON)],
             f.ATTRIBUTES: {
                 'user': iev['user_name'],
-                'created_at': iev['created_at'],
+                'created_at': format_date(iev['created_at']),
                 'action': iev['action'],
             }
         } for iev in issue_rec['iteration_events']
     }
     # fold children of iteration events
-    current[issue_id][f.iteration_events][f.PROPS] = {'folded': True}
-    # notes aka comments
-    current[issue_id][f.notes] |= {
-        f"{nt['id']}": {
-            f.CORE: f"{nt['createdAt']} {nt['author_name']}",
-            f.NOTE: nt['body'],
-        } for nt in issue_rec['notes']
-    }
-    # fold children of notes
-    current[issue_id][f.notes][f.PROPS] = {'folded': True}
+    current[issue_id][f.iteration_events][f.PROPS] = {f.folded: True}
+    # issue properties
+    current[issue_id][f.PROPS] = {f.detailsContentType: f.markdown, f.minimized: True if issue_rec['details'] else False, f.folded: True}
+
+
+def format_date(date_or_str: datetime | str) -> str:
+    try:
+        dt = datetime.fromisoformat(date_or_str) if isinstance(date_or_str, str) else date_or_str
+        return dt.astimezone().strftime('%Y-%m-%d %H:%M:%S %z')
+    except (ValueError, TypeError) as e:
+        log.error(f"Date formatting error: {e}")
+        return str(date_or_str)
 
 
 def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
@@ -568,5 +585,5 @@ def fetch_cadences():
 
 
 if __name__ == '__main__':
-    session = requests.session()
-    main()
+    with requests.session() as session:
+        main()
