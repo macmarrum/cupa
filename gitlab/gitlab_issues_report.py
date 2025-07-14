@@ -2,6 +2,7 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import os
+import re
 import sys
 import json
 import tomllib
@@ -480,7 +481,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     # notes aka comments
     current[issue_id][f.comments] |= {
         f"{nt['id']}": {
-            f.CORE: f"{format_date(nt['createdAt'])} | {nt['author_name']}",
+            f.CORE: f"{format_date(nt['createdAt'])} | {format_name(nt['author_name'])}",
             f.DETAILS: nt['body'],
             f.PROPS: {f.detailsContentType: f.markdown, f.minimized: True}
         } for nt in issue_rec['notes']
@@ -493,7 +494,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
             f.CORE: f"{iev['start_date']} - {iev['due_date']}",
             f.ICONS: [ACTION_TO_ICON.get(iev['action'], FALLBACK_ACTION_ICON)],
             f.ATTRIBUTES: {
-                'user': iev['user_name'],
+                'user': format_name(iev['user_name']),
                 'created_at': format_date(iev['created_at']),
                 'action': iev['action'],
             }
@@ -508,10 +509,17 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
 def format_date(date_or_str: datetime | str) -> str:
     try:
         dt = datetime.fromisoformat(date_or_str) if isinstance(date_or_str, str) else date_or_str
-        return dt.astimezone().strftime('%Y-%m-%d %H:%M:%S %z')
+        return dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
     except (ValueError, TypeError) as e:
         log.error(f"Date formatting error: {e}")
         return str(date_or_str)
+
+
+rx_gpn = re.compile(r' \d{8}$')
+
+
+def format_name(name: str) -> str:
+    return rx_gpn.sub('', name)
 
 
 def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
