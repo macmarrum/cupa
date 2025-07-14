@@ -466,13 +466,20 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
         f.NOTE: issue_rec['description'],
         f.ICONS: [ISSUE_ICON],
         f.ATTRIBUTES: {
-            'assignees': json.dumps(issue_rec['assignees']),
-            # 'project_id': int(issue_node['project_id']),
-            'preStashTags': json.dumps(issue_rec['labels']),
+            'assignees': None,
+            'preStashTags': None,
         },
         f.comments: {},
         f.iteration_events: {},
     }
+    if assignees := issue_rec['assignees']:
+        current[issue_id][f.ATTRIBUTES]['assignees'] = json.dumps([format_name(nm) for nm in assignees])
+    else:
+        del current[issue_id][f.ATTRIBUTES]['assignees']
+    if labels := issue_rec['labels']:
+        current[issue_id][f.ATTRIBUTES]['preStashTags'] = json.dumps(labels)
+    else:
+        del current[issue_id][f.ATTRIBUTES]['preStashTags']
     if closed_at := issue_rec['closedAt']:
         closed_at_dt = datetime.fromisoformat(closed_at)
         current[issue_id][f.ATTRIBUTES]['closedAt'] = format_date(closed_at_dt)
