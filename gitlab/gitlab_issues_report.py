@@ -463,7 +463,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     issue_id = issue_rec['id']
     current[issue_id] = {
         f.CORE: f"#{issue_rec['iid']} {issue_rec['title']}",
-        f.DETAILS: issue_rec['description'],
+        f.NOTE: issue_rec['description'],
         f.ICONS: [ISSUE_ICON],
         f.ATTRIBUTES: {
             'assignees': json.dumps(issue_rec['assignees']),
@@ -482,8 +482,8 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     current[issue_id][f.comments] |= {
         f"{nt['id']}": {
             f.CORE: f"{format_date(nt['createdAt'])} | {format_name(nt['author_name'])}",
-            f.DETAILS: nt['body'],
-            f.PROPS: {f.detailsContentType: f.markdown, f.minimized: True}
+            f.NOTE: nt['body'],
+            f.PROPS: {f.noteContentType: f.markdown}
         } for nt in issue_rec['notes']
     }
     # fold children of notes
@@ -503,7 +503,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     # fold children of iteration events
     current[issue_id][f.iteration_events][f.PROPS] = {f.folded: True}
     # issue properties
-    current[issue_id][f.PROPS] = {f.detailsContentType: f.markdown, f.minimized: True if issue_rec['description'] else False, f.folded: True}
+    current[issue_id][f.PROPS] = {f.noteContentType: f.markdown, f.folded: True}
 
 
 def format_date(date_or_str: datetime | str) -> str:
