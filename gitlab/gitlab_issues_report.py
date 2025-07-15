@@ -314,8 +314,8 @@ def main():
             epic_cache = json.load(fi)
     except FileNotFoundError:
         pass
-    # create_fp_report_of_issues_with_ancestry_for_period()
-    create_fp_report_of_issues_for_iterations()
+    create_fp_report_of_issues_with_ancestry_for_period()
+    # create_fp_report_of_issues_for_iterations()
 
 
 def create_fp_report_of_issues_with_ancestry_for_period():
@@ -456,6 +456,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
                 f.ATTRIBUTES: {
                     'group_path': epic_rec['group_path'],
                     'group_id': epic_rec['group_id'],
+                    'id': int(Path(epic_id.removepreffix('gid:/')).name),
                 }
             }
             if labels := epic_rec['labels']:
