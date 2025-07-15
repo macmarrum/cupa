@@ -6,8 +6,9 @@ import re
 import sys
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+from json import JSONEncoder
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -306,6 +307,13 @@ class EpicRecord(DictLike):
         return epic_rec
 
 
+class EpicRecordJSONEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, EpicRecord):
+            return asdict(obj)
+        return super().default(obj)
+
+
 def main():
     global epic_cache
     log.info('Start main')
@@ -342,7 +350,7 @@ def create_fp_report_of_issues_with_ancestry_for_period():
         insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
     if epic_cache:
         with epic_cache_json.open('w') as fo:
-            json.dump(epic_cache, fo, indent=2)
+            json.dump(epic_cache, fo, indent=2, cls=EpicRecordJSONEncoder)
     if issue_itr_events_fetched:
         with issue_cache_json.open('w') as fo:
             json.dump(issue_nodes, fo, indent=2)
@@ -403,6 +411,8 @@ def build_epic_rec_ancestry(group_path, epic_iid, epic_gid):
         cache_key = epic_gid
         if cache_key in epic_cache:
             epic_rec = epic_cache[cache_key]
+            if not isinstance(epic_rec, EpicRecord):
+                epic_rec = EpicRecord(**epic_rec)
         else:
             variables = {'fullPath': group_path, 'epicIid': epic_iid}
             data = run_graphql_query(q.epic_with_parent, variables)
