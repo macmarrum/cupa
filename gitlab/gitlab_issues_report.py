@@ -556,7 +556,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         current_iteration = fetch_current_iteration()
         iteration_gids = [current_iteration['id']]
         fmt = '%Y-%m-%d'
-        top_level_key = f"{format_date(current_iteration['startDate'], fmt)} - {format_date(current_iteration['endDate'], fmt)}"
+        top_level_key = f"{format_date(current_iteration['startDate'], fmt)} - {format_date(current_iteration['dueDate'], fmt)}"
     else:
         top_level_key = f"{iteration_gids}"
     issue_nodes = fetch_issues_for_iterations(iteration_gids, project_full_path)
