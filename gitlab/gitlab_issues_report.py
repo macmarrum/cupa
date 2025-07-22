@@ -322,8 +322,8 @@ def main():
             epic_cache = json.load(fi)
     except FileNotFoundError:
         pass
-    create_fp_report_of_issues_with_ancestry_for_period()
-    # create_fp_report_of_issues_for_iterations()
+    # create_fp_report_of_issues_with_ancestry_for_period()
+    create_fp_report_of_issues_for_iterations()
 
 
 def create_fp_report_of_issues_with_ancestry_for_period():
@@ -527,10 +527,10 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     current[issue_id][f.PROPS] = {f.noteContentType: f.markdown, f.folded: True}
 
 
-def format_date(date_or_str: datetime | str) -> str:
+def format_date(date_or_str: datetime | str, fmt='%Y-%m-%d %H:%M:%S') -> str:
     try:
         dt = datetime.fromisoformat(date_or_str) if isinstance(date_or_str, str) else date_or_str
-        return dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+        return dt.astimezone().strftime(fmt)
     except (ValueError, TypeError) as e:
         log.error(f"Date formatting error: {e}")
         return str(date_or_str)
@@ -552,6 +552,13 @@ def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
 
 
 def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
+    if not iteration_gids:
+        current_iteration = fetch_current_iteration()
+        iteration_gids = [current_iteration['id']]
+        fmt = '%Y-%m-%d'
+        top_level_key = f"{format_date(current_iteration['startDate'], fmt)} - {format_date(current_iteration['endDate'], fmt)}"
+    else:
+        top_level_key = f"{iteration_gids}"
     issue_nodes = fetch_issues_for_iterations(iteration_gids, project_full_path)
     for issue_node in issue_nodes:
         itr_event_recs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
@@ -575,7 +582,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         issue_rec = IssueRecord.of(issue_node, itr_event_recs, note_recs)
         insert_into_freeplane_json_dct(freeplane_json_dct, epic_rec_ancestry, issue_rec)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
-    dump_json_to_disk_and_import_to_freeplane(freeplane_json_dct, gitlab_export_freeplane_json)
+    dump_json_to_disk_and_import_to_freeplane({top_level_key: freeplane_json_dct}, gitlab_export_freeplane_json)
 
 
 def fetch_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
