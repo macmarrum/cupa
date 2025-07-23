@@ -582,7 +582,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         issue_rec = IssueRecord.of(issue_node, itr_event_recs, note_recs)
         insert_into_freeplane_json_dct(freeplane_json_dct, epic_rec_ancestry, issue_rec)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
-    dump_json_to_disk_and_import_to_freeplane({top_level_core: {f.DETAILS: format_date(datetime.now()), **freeplane_json_dct}, gitlab_export_freeplane_json)
+    dump_json_to_disk_and_import_to_freeplane({top_level_core: {f.DETAILS: format_date(datetime.now()), **freeplane_json_dct}}, gitlab_export_freeplane_json)
 
 
 def fetch_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
