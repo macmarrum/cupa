@@ -556,9 +556,9 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         current_iteration = fetch_current_iteration()
         iteration_gids = [current_iteration['id']]
         fmt = '%Y-%m-%d'
-        top_level_key = f"{format_date(current_iteration['startDate'], fmt)} - {format_date(current_iteration['dueDate'], fmt)}"
+        top_level_core = f"{format_date(current_iteration['startDate'], fmt)} - {format_date(current_iteration['dueDate'], fmt)}"
     else:
-        top_level_key = f"{iteration_gids}"
+        top_level_core = f"{iteration_gids}"
     issue_nodes = fetch_issues_for_iterations(iteration_gids, project_full_path)
     for issue_node in issue_nodes:
         itr_event_recs = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
@@ -582,7 +582,7 @@ def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, 
         issue_rec = IssueRecord.of(issue_node, itr_event_recs, note_recs)
         insert_into_freeplane_json_dct(freeplane_json_dct, epic_rec_ancestry, issue_rec)
     gitlab_export_freeplane_json = workdir_path / 'gitlab-export-freeplane.json'
-    dump_json_to_disk_and_import_to_freeplane({top_level_key: freeplane_json_dct}, gitlab_export_freeplane_json)
+    dump_json_to_disk_and_import_to_freeplane({top_level_core: {f.DETAILS: format_date(datetime.now()), **freeplane_json_dct}, gitlab_export_freeplane_json)
 
 
 def fetch_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
