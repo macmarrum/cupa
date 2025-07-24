@@ -155,6 +155,7 @@ class q:
                   name
                 }
                 createdAt
+                system
               }
             }
             epic {
@@ -207,6 +208,7 @@ class NoteRecord(DictLike):
     body: str
     author_name: str
     createdAt: str
+    system: bool
 
     @staticmethod
     def of(note_node):
@@ -215,6 +217,7 @@ class NoteRecord(DictLike):
             body=note_node['body'],
             author_name=note_node['author']['name'],
             createdAt=note_node['createdAt'],
+            system=note_node['system'],
         )
         return note_rec
 
@@ -505,7 +508,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
             f.CORE: f"{format_date(nt['createdAt'])} | {format_name(nt['author_name'])}",
             f.NOTE: nt['body'],
             f.PROPS: {f.noteContentType: f.markdown}
-        } for nt in issue_rec['notes']
+        } for nt in issue_rec['notes'] if nt['system'] is False
     }
     # fold children of notes
     current[issue_id][f.comments][f.PROPS] = {f.folded: True}
