@@ -555,6 +555,8 @@ def dump_json_to_disk_and_import_to_freeplane(freeplane_hierarchy, export_json):
 
 
 def create_fp_report_of_issues_for_iterations(iteration_gids: list[str] = None, project_full_path: str = None):
+    """Creates a Freeplane JSON dict - by default for the current iteration.\n
+    Past iterations will contain only issues closed in that iteration. For a historical view, gather iteration events per each issue."""
     if not iteration_gids:
         current_iteration = fetch_current_iteration()
         iteration_gids = [current_iteration['id']]
