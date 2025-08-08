@@ -101,6 +101,17 @@ class q:
             closedAt
             labels(first: 10) { nodes { title } }
             assignees { nodes { name } }
+            notes {
+              nodes {
+                id
+                body
+                author {
+                  name
+                }
+                createdAt
+                system
+              }
+            }
             epic {
               id
               iid
