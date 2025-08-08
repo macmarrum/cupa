@@ -51,12 +51,20 @@ epic_cache = {}
 epic_to_ancestry = {}
 issue_itr_events_fetched = False
 
+
+class icon:
+    FALLBACK_ACTION = 'emoji-1F33B'  # sunflower
+    ADD_ACTION = 'emoji-2728'  # sparkles
+    REMOVE_ACTION = 'emoji-274C'  # cross mark
+    ISSUE = 'emoji-2139'  # information
+    HUMAN_NOTE = 'emoji-1F4AC'  # speech balloon
+    SYSTEM_NOTE = 'emoji-1F916'  # robot
+
+
 ACTION_TO_ICON = {
-    'add': 'emoji-2728',  # sparkles
-    'remove': 'emoji-274C',  # cross mark
+    'add': icon.ADD_ACTION,
+    'remove': icon.REMOVE_ACTION,
 }
-FALLBACK_ACTION_ICON = 'emoji-1F33B'  # sunflower
-ISSUE_ICON = 'emoji-2139'
 ITER_EVENTS = '@iter-events'
 
 
@@ -485,7 +493,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     current[issue_id] = {
         f.CORE: f"#{issue_rec['iid']} {issue_rec['title']}",
         f.NOTE: issue_rec['description'],
-        f.ICONS: [ISSUE_ICON],
+        f.ICONS: [icon.ISSUE],
         f.ATTRIBUTES: {},
         f.comments: {},
         f.iteration_events: {},
@@ -506,9 +514,10 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     current[issue_id][f.comments] |= {
         f"{nt['id']}": {
             f.CORE: f"{format_date(nt['createdAt'])} | {format_name(nt['author_name'])}",
+            f.ICONS: [icon.SYSTEM_NOTE if nt['system'] else icon.HUMAN_NOTE],
             f.NOTE: nt['body'],
-            f.PROPS: {f.noteContentType: f.markdown}
-        } for nt in issue_rec['notes'] if nt['system'] is False
+            f.PROPS: {f.noteContentType: f.markdown},
+        } for nt in issue_rec['notes']
     }
     # fold children of notes
     current[issue_id][f.comments][f.PROPS] = {f.folded: True}
@@ -516,7 +525,7 @@ def insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry_chain:
     current[issue_id][f.iteration_events] |= {
         f"{iev['id']}": {
             f.CORE: f"{iev['start_date']} - {iev['due_date']}",
-            f.ICONS: [ACTION_TO_ICON.get(iev['action'], FALLBACK_ACTION_ICON)],
+            f.ICONS: [ACTION_TO_ICON.get(iev['action'], icon.FALLBACK_ACTION)],
             f.ATTRIBUTES: {
                 'user': format_name(iev['user_name']),
                 'created_at': format_date(iev['created_at']),
