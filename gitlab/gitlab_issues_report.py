@@ -58,7 +58,7 @@ class icon:
     REMOVE_ACTION = 'emoji-274C'  # cross mark
     ISSUE = 'emoji-2139'  # information
     HUMAN_NOTE = 'emoji-1F4AC'  # speech balloon
-    SYSTEM_NOTE = 'emoji-1F916'  # robot
+    SYSTEM_NOTE = 'emoji-1F441-200D-1F5E8'  # eye in speech bubble
 
 
 ACTION_TO_ICON = {
