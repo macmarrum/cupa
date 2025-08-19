@@ -196,7 +196,9 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         self.log_message(f'"{self.requestline}" "Content-Length: {self.headers.get("Content-Length")}" (req)')
         path = super().translate_path(self.path)
-        if not Path(path).resolve().is_relative_to(DOC_ROOT.resolve()):
+        resolved_path = Path(path).resolve()
+        resolved_doc_root = DOC_ROOT.resolve()
+        if not (resolved_path == resolved_doc_root or resolved_doc_root in resolved_path.parents):
             super().send_error(HTTPStatus.FORBIDDEN, "Forbidden: Attempted write outside document root.")
             return
         size = int(self.headers.get('Content-Length', None))
