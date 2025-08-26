@@ -225,6 +225,17 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+class MyTCPServer(socketserver.TCPServer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # @override
+    def handle_error(self, request, client_address):
+        """Overrides socketserver.BaseServer.handle_error(self, request, client_address)"""
+        print(client_address, sys.exc_info()[0:2], file=sys.stderr)
+
+
 PORT = 8000
 HOST = '127.0.0.1' if MySimpleHTTPRequestHandler.ALLOWED_CLIENT_ADDRESSES == {'127.0.0.1'} else '0.0.0.0'
 WORK_DIR = me.parent
@@ -233,7 +244,7 @@ LOG_FILE = WORK_DIR / f"tw5-server-{PORT}.log"
 BACKUP_DIR = WORK_DIR
 
 os.chdir(DOC_ROOT)
-httpd = socketserver.TCPServer((HOST, PORT), MySimpleHTTPRequestHandler)
+httpd = MyTCPServer((HOST, PORT), MySimpleHTTPRequestHandler)
 ip, port = httpd.server_address
 date_time = date_time_string()
 print(f":: Python {sys.version}")
