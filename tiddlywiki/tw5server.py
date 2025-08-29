@@ -233,7 +233,7 @@ class MyTCPServer(socketserver.TCPServer):
     # @override
     def handle_error(self, request, client_address):
         """Overrides socketserver.BaseServer.handle_error(self, request, client_address)"""
-        print(client_address, sys.exc_info()[0:2], file=sys.stderr)
+        print(client_address, sys.exc_info()[1], file=sys.stderr)
 
 
 PORT = 8000
