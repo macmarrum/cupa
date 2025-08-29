@@ -10,6 +10,7 @@ import sys
 import time
 import zipfile
 from http import HTTPStatus
+from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Set
 
@@ -195,11 +196,14 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         self.log_message(f'"{self.requestline}" "Content-Length: {self.headers.get("Content-Length")}" (req)')
+        if not self.path.endswith('.html') or self.path.endswith('/index.html'):
+            super().send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
+            return
         path = super().translate_path(self.path)
         resolved_path = Path(path).resolve()
         resolved_doc_root = DOC_ROOT.resolve()
         if not (resolved_path == resolved_doc_root or resolved_doc_root in resolved_path.parents):
-            super().send_error(HTTPStatus.FORBIDDEN, "Forbidden: Attempted write outside document root.")
+            super().send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
             return
         size = int(self.headers.get('Content-Length', None))
         data = self.rfile.read(size)
