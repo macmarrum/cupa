@@ -91,7 +91,7 @@ class q:
     issues_updated_after = '''
     query($fullPath: ID!, $updatedAfter: Time, $after: String) {
       project(fullPath: $fullPath) {
-        issues(first: 100, updatedAfter: $updatedAfter, after: $after, sort: UPDATED_DESC) {
+        issues(first: 20, updatedAfter: $updatedAfter, after: $after, sort: UPDATED_DESC) {
           pageInfo { hasNextPage endCursor }
           nodes {
             projectId
