@@ -367,9 +367,11 @@ def create_fp_report_of_issues_with_ancestry_for_period():
             itr_events = fetch_iteration_events_for_issue(issue_node['projectId'], issue_node['iid'])
             issue_node[ITER_EVENTS] = itr_events
             issue_itr_events_fetched = True
-        itr_event_recs_in_range = filter_itr_events_to_range_and_repackage(itr_events, START_DATE_UTC, END_DATE_UTC)
-        issue_rec = IssueRecord.of(issue_node, itr_event_recs_in_range)
-        insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
+        itr_event_recs = convert_itr_events_to_recs(itr_events)
+        itr_event_recs_in_range = filter_itr_recs_to_range(itr_event_recs, START_DATE_UTC, END_DATE_UTC)
+        if itr_event_recs_in_range:  # only include the issue if was part of any iteration in the range
+            issue_rec = IssueRecord.of(issue_node, itr_event_recs)  # include the full list of iteration events
+            insert_into_freeplane_json_dct(freeplane_hierarchy, epic_rec_ancestry, issue_rec)
     if epic_cache:
         with epic_cache_json.open('w') as fo:
             json.dump(epic_cache, fo, indent=2, cls=EpicRecordJSONEncoder)
@@ -463,14 +465,20 @@ def fetch_iteration_events_for_issue(project_id, issue_iid):
     return resp.json()
 
 
-def filter_itr_events_to_range_and_repackage(iteration_events, start, end):
-    filtered_event_recs: list[IterationEventRecord] = []
+def convert_itr_events_to_recs(iteration_events):
+    event_recs: list[IterationEventRecord] = []
     for itr_event in iteration_events:
-        itr = itr_event.get('iteration')
-        if itr and is_iteration_in_range(itr, start, end):
-            iter_event_rec = IterationEventRecord.of(itr_event)
-            filtered_event_recs.append(iter_event_rec)
-    return filtered_event_recs
+        iter_event_rec = IterationEventRecord.of(itr_event)
+        event_recs.append(iter_event_rec)
+    return event_recs
+
+
+def filter_itr_recs_to_range(itr_recs, start, end):
+    filtered_recs: list[IterationEventRecord] = []
+    for itr_rec in itr_recs:
+        if is_iteration_in_range(itr_rec, start, end):
+            filtered_recs.append(itr_rec)
+    return filtered_recs
 
 
 def is_iteration_in_range(iteration, start, end):
