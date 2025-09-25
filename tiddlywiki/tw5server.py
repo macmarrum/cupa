@@ -42,9 +42,21 @@ def load_allowed_client_addresses(allowed_client_addresses_path: Path) -> Set[st
     return allowed_client_addresses
 
 
+def load_forbidden_paths(forbidden_paths_path: Path) -> Set[str]:
+    forbidden_paths = set()
+    with contextlib.suppress(FileNotFoundError):
+        for line in forbidden_paths_path.open(encoding=UTF8):
+            line = line.strip()
+            if line and not line.startswith('#'):
+                forbidden_paths.add(line)
+    return forbidden_paths
+
+
 class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     ALLOWED_CLIENT_ADDRESSES_PATH = me.parent / 'allowed-client-addresses.txt'
     ALLOWED_CLIENT_ADDRESSES = load_allowed_client_addresses(ALLOWED_CLIENT_ADDRESSES_PATH)
+    FORBIDDEN_PATHS_PATH = me.parent / 'forbidden-paths.txt'
+    FORBIDDEN_PATHS = load_forbidden_paths(FORBIDDEN_PATHS_PATH)
     TO_TW5_TABLE = '?to-tw5-table'
     TO_JIRA_TABLE = '?to-jira-table'
     STARTFILE = '?startfile'
@@ -85,21 +97,26 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if not self.parse_request():
                 # An error code has been sent, just exit
                 return
+            #<macmarrum>
+            ip = self.client_address[0]
+            if ip not in self.ALLOWED_CLIENT_ADDRESSES:
+                print(f"** {ip} not in {self.ALLOWED_CLIENT_ADDRESSES_PATH.name}: {self.ALLOWED_CLIENT_ADDRESSES}")
+                self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
+                self.wfile.flush()  # actually send the response if not already done.
+                return
+            if self.path in self.FORBIDDEN_PATHS:
+                self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
+                self.wfile.flush()  # actually send the response if not already done.
+                return
+            #</macmarrum>
             mname = 'do_' + self.command
             if not hasattr(self, mname):
                 self.send_error(
                     HTTPStatus.NOT_IMPLEMENTED,
                     "Unsupported method (%r)" % self.command)
                 return
-            # <macmarrum>
-            ip = self.client_address[0]
-            if ip not in self.ALLOWED_CLIENT_ADDRESSES:
-                print(f"** {ip} not in {self.ALLOWED_CLIENT_ADDRESSES_PATH.name}: {self.ALLOWED_CLIENT_ADDRESSES}")
-                self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
-            else:
-                # </macmarrum>
-                method = getattr(self, mname)
-                method()
+            method = getattr(self, mname)
+            method()
             self.wfile.flush()  # actually send the response if not already done.
         except TimeoutError as e:
             # a read or a write timed out.  Discard this connection
@@ -255,4 +272,5 @@ print(f":: Python {sys.version}")
 print(f":: {date_time} -- serving '{os.getcwd()}' at {ip} {port}")
 print(f":: {date_time} -- WORK_DIR: {WORK_DIR}")
 print(f":: {date_time} -- allowed client addresses: {MySimpleHTTPRequestHandler.ALLOWED_CLIENT_ADDRESSES}")
+print(f":: {date_time} -- forbidden paths: {MySimpleHTTPRequestHandler.FORBIDDEN_PATHS}")
 httpd.serve_forever()
