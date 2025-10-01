@@ -34,16 +34,16 @@ def qt(name: str) -> str:
     :raises ValueError: if the identifier is too long. SQLite3 has a maximum identifier length of 64 characters.
     """
     if name is None:
-        raise ValueError("Name cannot be None")
+        raise ValueError("Identifier cannot be None")
     if not name:
         return '""'  # Empty string must be quoted
+    if len(name) > 64:
+        raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
     if RX_VALID_UNQUOTED_IDENTIFIER.match(name) and name.upper() not in SQLITE_KEYWORDS:
         value = name
     else:
         # If the name itself contains double quotes, they need to be escaped by doubling them.
         value = f'"{name.replace('"', '""')}"'
-    if len(name) > 64:
-        raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
     return value
 
 
