@@ -48,9 +48,9 @@ def qt(name: str) -> str:
 
 
 def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_columns: Sequence[Sequence[str]] = None):
-    """Recreate a table with new primary keys and/or unique constraints.
+    """Recreates a table with new primary keys and/or unique constraints.
      Converts any in-line UNIQUE constraints to stand-alone indexes.
-     Keeps old triggers, and unless new primary keys and/or unique indexes are requested, keeps the old ones.
+     Keeps old triggers, and unless the new primary keys and/or unique indexes override the old one, keeps the old ones.
     """
     _table_name_ = qt(table_name)
     cursor.execute(f"PRAGMA table_info({_table_name_});")
@@ -122,7 +122,7 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
 
                 # If this unique index's columns are already covered by our planned constraints, skip recreating it.
                 if current_index_cols_frozenset in all_covered_unique_column_sets:
-                    print(f"Skip redundant existing unique index '{nonauto_name}' (columns: {', '.join(current_index_cols_frozenset)}) because its functionality is covered.", file=sys.stderr)
+                    # print(f"Skip redundant existing unique index '{nonauto_name}' (columns: {', '.join(current_index_cols_frozenset)}) because its functionality is covered.", file=sys.stderr)
                     continue
 
                 # If we decide to recreate this existing unique index, add its columns to our covered set.
@@ -160,7 +160,7 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
     if is_strict_table:
         create_table_sql += " STRICT"
 
-    print(f"For new_table_name:\n{create_table_sql}", file=sys.stderr)
+    # print(f"For new_table_name:\n{create_table_sql}", file=sys.stderr)
 
     # --- Generate CREATE UNIQUE INDEX statements for unique_columns parameter ---
     # These are explicitly requested unique constraints that will become separate, droppable indexes.
@@ -194,17 +194,17 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
 
         # --- Recreate explicit unique indexes generated from unique_columns parameter ---
         for sql in explicit_unique_index_statements:
-            print(f"Explicit: {sql}", file=sys.stderr)
+            # print(f"Explicit: {sql}", file=sys.stderr)
             cursor.execute(sql)
 
         # --- Recreate other indexes (existing non-unique and non-redundant existing unique) ---
         for sql in create_index_statements:
-            print(f"Existing: {sql}", file=sys.stderr)
+            # print(f"Existing: {sql}", file=sys.stderr)
             cursor.execute(sql)
 
         # --- Recreate triggers ---
         for sql in create_trigger_statements:
-            print(f":: {sql}", file=sys.stderr)
+            # print(f":: {sql}", file=sys.stderr)
             cursor.execute(sql)
 
         cursor.execute("COMMIT;")
