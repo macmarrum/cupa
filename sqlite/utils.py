@@ -1,7 +1,7 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import re
-import sys
+import sqlite3
 from typing import Sequence, List, Set, FrozenSet
 
 SQLITE_KEYWORDS = {
@@ -47,14 +47,14 @@ def qt(name: str) -> str:
     return value
 
 
-def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_columns: Sequence[Sequence[str]] = None):
+def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[str] = None, unique_columns: Sequence[Sequence[str]] = None):
     """Recreates a table with new primary keys and/or unique constraints.
      Converts any in-line UNIQUE constraints to stand-alone indexes.
      Keeps old triggers, and unless the new primary keys and/or unique indexes override the old one, keeps the old ones.
     """
     _table_name_ = qt(table_name)
-    cursor.execute(f"PRAGMA table_info({_table_name_});")
-    columns_info = cursor.fetchall()
+    cur.execute(f"PRAGMA table_info({_table_name_});")
+    columns_info = cur.fetchall()
     if not columns_info:
         raise ValueError(f"Table '{table_name}' does not exist or has no columns.")
 
@@ -100,12 +100,12 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
     create_trigger_statements: List[str] = []
 
     # Query sqlite_master for original table's indexes and triggers
-    cursor.execute(f"SELECT type, name, sql FROM sqlite_master WHERE tbl_name = '{table_name}' AND sql IS NOT NULL;")
-    nonauto_master_entries = cursor.fetchall()
+    cur.execute(f"SELECT type, name, sql FROM sqlite_master WHERE tbl_name = '{table_name}' AND sql IS NOT NULL;")
+    nonauto_master_entries = cur.fetchall()
 
     # Get a list of all unique indexes on the original table to check their uniqueness property
-    cursor.execute(f"PRAGMA index_list({_table_name_});")
-    existing_indexName_to_isUnique_map = {idx_name: idx_unique for idx_seq, idx_name, idx_unique, idx_origin, idx_partial in cursor}
+    cur.execute(f"PRAGMA index_list({_table_name_});")
+    existing_indexName_to_isUnique_map = {idx_name: idx_unique for idx_seq, idx_name, idx_unique, idx_origin, idx_partial in cur}
 
     original_create_table_sql = None
     for nonauto_type, nonauto_name, nonauto_sql in nonauto_master_entries:
@@ -116,8 +116,8 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
 
             if current_index_is_unique:
                 # Get columns for this unique index using PRAGMA index_info
-                cursor.execute(f"PRAGMA index_info('{nonauto_name}');")
-                index_columns_info = cursor
+                cur.execute(f"PRAGMA index_info('{nonauto_name}');")
+                index_columns_info = cur
                 current_index_cols_frozenset = frozenset([name for _, _, name, *_ in index_columns_info])
 
                 # If this unique index's columns are already covered by our planned constraints, skip recreating it.
@@ -182,35 +182,35 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
                 # Add to all_covered_unique_column_sets to prevent any future duplication
                 all_covered_unique_column_sets.add(uc_frozenset)
 
-    cursor.execute("PRAGMA foreign_keys=OFF;")
-    cursor.execute("PRAGMA legacy_alter_table=ON;")
-    cursor.execute("BEGIN TRANSACTION;")
+    cur.execute("PRAGMA foreign_keys=OFF;")
+    cur.execute("PRAGMA legacy_alter_table=ON;")
+    cur.execute("BEGIN TRANSACTION;")
     try:
-        cursor.execute(create_table_sql)
+        cur.execute(create_table_sql)
         quoted_columns_list_str = ", ".join(quoted_column_names)
-        cursor.execute(f"INSERT INTO {_new_table_name_} ({quoted_columns_list_str}) SELECT {quoted_columns_list_str} FROM {_table_name_};")
-        cursor.execute(f"DROP TABLE {_table_name_};")
-        cursor.execute(f"ALTER TABLE {_new_table_name_} RENAME TO {_table_name_};")
+        cur.execute(f"INSERT INTO {_new_table_name_} ({quoted_columns_list_str}) SELECT {quoted_columns_list_str} FROM {_table_name_};")
+        cur.execute(f"DROP TABLE {_table_name_};")
+        cur.execute(f"ALTER TABLE {_new_table_name_} RENAME TO {_table_name_};")
 
         # --- Recreate explicit unique indexes generated from unique_columns parameter ---
         for sql in explicit_unique_index_statements:
             # print(f"Explicit: {sql}", file=sys.stderr)
-            cursor.execute(sql)
+            cur.execute(sql)
 
         # --- Recreate other indexes (existing non-unique and non-redundant existing unique) ---
         for sql in create_index_statements:
             # print(f"Existing: {sql}", file=sys.stderr)
-            cursor.execute(sql)
+            cur.execute(sql)
 
         # --- Recreate triggers ---
         for sql in create_trigger_statements:
             # print(f":: {sql}", file=sys.stderr)
-            cursor.execute(sql)
+            cur.execute(sql)
 
-        cursor.execute("COMMIT;")
+        cur.execute("COMMIT;")
     except Exception as e:
-        cursor.execute("ROLLBACK;")
+        cur.execute("ROLLBACK;")
         raise e
     finally:
-        cursor.execute("PRAGMA foreign_keys=ON;")
-        cursor.execute("PRAGMA legacy_alter_table=OFF;")
+        cur.execute("PRAGMA foreign_keys=ON;")
+        cur.execute("PRAGMA legacy_alter_table=OFF;")
