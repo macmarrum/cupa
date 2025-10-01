@@ -42,7 +42,7 @@ def qt(name: str) -> str:
     else:
         # If the name itself contains double quotes, they need to be escaped by doubling them.
         value = f'"{name.replace('"', '""')}"'
-    if len(value) > 64:
+    if len(name) > 64:
         raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
     return value
 
