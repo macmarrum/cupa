@@ -24,6 +24,7 @@ SQLITE_KEYWORDS = {
 }
 
 RX_VALID_UNQUOTED_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+RX_STRICT = re.compile(r'\)\s*STRICT\b(?!.*\))', re.IGNORECASE)
 
 
 def qt(name: str) -> str:
@@ -47,6 +48,10 @@ def qt(name: str) -> str:
 
 
 def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_columns: Sequence[Sequence[str]] = None):
+    """Recreate a table with new primary keys and/or unique constraints.
+     Converts any in-line UNIQUE constraints to stand-alone indexes.
+     Keeps old triggers, and unless new primary keys and/or unique indexes are requested, keeps the old ones.
+    """
     _table_name_ = qt(table_name)
     cursor.execute(f"PRAGMA table_info({_table_name_});")
     columns_info = cursor.fetchall()
@@ -102,8 +107,11 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
     cursor.execute(f"PRAGMA index_list({_table_name_});")
     existing_indexName_to_isUnique_map = {idx_name: idx_unique for idx_seq, idx_name, idx_unique, idx_origin, idx_partial in cursor}
 
+    original_create_table_sql = None
     for nonauto_type, nonauto_name, nonauto_sql in nonauto_master_entries:
-        if nonauto_type == 'index':
+        if nonauto_type == 'table' and nonauto_name == table_name:
+            original_create_table_sql = nonauto_sql
+        elif nonauto_type == 'index':
             current_index_is_unique = existing_indexName_to_isUnique_map.get(nonauto_name) == 1
 
             if current_index_is_unique:
@@ -127,6 +135,14 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
             # Triggers generally refer to the table name, which will be correct after RENAME
             create_trigger_statements.append(nonauto_sql)
 
+    # Determine if the original table was STRICT
+    is_strict_table = False
+    if original_create_table_sql:
+        # Check for 'STRICT' keyword specifically after the closing parenthesis of the column definitions.
+        # This matches ')', followed by zero or more whitespace characters, then 'STRICT' as a whole word.
+        if RX_STRICT.search(original_create_table_sql):
+            is_strict_table = True
+
     # --- Construct new table DDL ---
     _new_table_name_ = qt(f"{table_name}_new_with_constraints")
     create_table_sql = f"CREATE TABLE {_new_table_name_} (\n"
@@ -139,7 +155,10 @@ def recreate_table(cursor, table_name, pk_columns: Sequence[str] = None, unique_
 
     # IMPORTANT: We no longer add UNIQUE constraints directly into the CREATE TABLE statement here.
     # Instead, they will be created as separate UNIQUE INDEXes to allow them to be dropped later.
-    create_table_sql += "\n);"
+    # Close the column definitions and add STRICT if applicable
+    create_table_sql += "\n)"
+    if is_strict_table:
+        create_table_sql += " STRICT"
 
     print(f"For new_table_name:\n{create_table_sql}", file=sys.stderr)
 
