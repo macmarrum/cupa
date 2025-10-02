@@ -1,7 +1,6 @@
-# Copyright (C) 2025  macmarrum (at) outlook (dot) ie
-# SPDX-License-Identifier: GPL-3.0-or-later
 import re
 import sqlite3
+import sys
 from typing import Sequence, List, Set, FrozenSet
 
 SQLITE_KEYWORDS = {
@@ -14,7 +13,7 @@ SQLITE_KEYWORDS = {
     'FOR', 'FOREIGN', 'FROM', 'FULL', 'GENERATED', 'GLOB', 'GROUP', 'HAVING', 'IF', 'IGNORE',
     'IMMEDIATE', 'IN', 'INDEX', 'INDEXED', 'INITIALLY', 'INNER', 'INSERT', 'INSTEAD', 'INTERSECT',
     'INTO', 'IS', 'ISNULL', 'JOIN', 'KEY', 'LAST', 'LEFT', 'LIKE', 'LIMIT', 'MATCH', 'MATERIALIZED',
-    'NATURAL', 'NO', 'NOT', 'NOTHING', 'NOTNULL', 'NULL', 'OF', 'OFFSET', 'ON', 'OR', 'ORDER',
+    'NATURAL', 'NO', 'NOT', 'NOTNULL', 'NULL', 'OF', 'OFFSET', 'ON', 'OR', 'ORDER',
     'OTHERS', 'OUTER', 'OVER', 'PARTITION', 'PLAN', 'PRAGMA', 'PRECEDING', 'PRIMARY', 'QUERY',
     'RAISE', 'RANGE', 'RECURSIVE', 'REFERENCES', 'REGEXP', 'REINDEX', 'RELEASE', 'RENAME',
     'REPLACE', 'RESTRICT', 'RETURNING', 'RIGHT', 'ROLLBACK', 'ROW', 'ROWS', 'SAVEPOINT', 'SELECT',
@@ -23,9 +22,10 @@ SQLITE_KEYWORDS = {
     'WINDOW', 'WITH', 'WITHOUT'
 }
 
-RX_VALID_UNQUOTED_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+RX_VALID_UNQUOTED_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 RX_STRICT = re.compile(r'\)\s*STRICT\b(?!.*\))', re.IGNORECASE)
 
+QT_NAME64_OLD_TO_NEW = {}
 
 def qt(name: str) -> str:
     """
@@ -34,9 +34,12 @@ def qt(name: str) -> str:
     :raises ValueError: if the identifier is too long. SQLite3 has a maximum identifier length of 64 characters.
     """
     if name is None:
-        raise ValueError("Identifier cannot be None")
+        raise ValueError('Identifier cannot be None')
     if not name:
         return '""'  # Empty string must be quoted
+    if len(name) > 64 and QT_NAME64_OLD_TO_NEW:
+        for old, new in QT_NAME64_OLD_TO_NEW.items():
+            name = name.replace(old, new)
     if len(name) > 64:
         raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
     if RX_VALID_UNQUOTED_IDENTIFIER.match(name) and name.upper() not in SQLITE_KEYWORDS:
@@ -47,11 +50,13 @@ def qt(name: str) -> str:
     return value
 
 
-def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[str] = None, unique_columns: Sequence[Sequence[str]] = None):
+def recreate_table(conn: sqlite3.Connection, table_name: str, pk_columns: Sequence[str] = None, unique_column_sets: Sequence[Sequence[str]] = None, index_column_sets: Sequence[Sequence[str]] = None):
     """Recreates a table with new primary keys and/or unique constraints.
      Converts any in-line UNIQUE constraints to stand-alone indexes.
      Keeps old triggers, and unless the new primary keys and/or unique indexes override the old one, keeps the old ones.
     """
+    print(f"recreate_table({table_name!r}, {pk_columns!r}, {unique_column_sets!r}, {index_column_sets!r})", file=sys.stderr)
+    cur = conn.cursor()
     _table_name_ = qt(table_name)
     cur.execute(f"PRAGMA table_info({_table_name_});")
     columns_info = cur.fetchall()
@@ -61,15 +66,22 @@ def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[st
     column_definitions = []
     quoted_column_names = []
 
-    # This set will track all combinations of columns that will have a UNIQUE constraint
-    # (either as PRIMARY KEY, an explicitly requested unique_column, or an existing unique index we choose to recreate).
-    # This helps prevent creating redundant unique indexes.
+    # This set will track all combinations of columns that must have a UNIQUE constraint
+    # (either as PRIMARY KEY or an explicitly requested unique_column).
+    # It's used to identify existing unique indexes that become redundant.
     all_covered_unique_column_sets: Set[FrozenSet[str]] = set()
 
+    # This new set will track all combinations of columns for which ANY index (unique or regular)
+    # is planned for the final table. Used to prevent creating truly redundant indexes.
+    all_final_index_column_sets: Set[FrozenSet[str]] = set()
+
     # If pk_columns are provided, the PRIMARY KEY constraint implicitly creates a unique index.
-    # Add these columns to our covered set.
+    # Add these columns to both covered sets.
     if pk_columns:
-        all_covered_unique_column_sets.add(frozenset(pk_columns))
+        pk_frozenset = frozenset(pk_columns)
+        all_covered_unique_column_sets.add(pk_frozenset)
+        all_final_index_column_sets.add(pk_frozenset)
+
 
     for col in columns_info:
         cid, name, type, notnull, dflt_value, pk = col
@@ -94,9 +106,7 @@ def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[st
         quoted_column_names.append(_name_)
 
     # --- Collect existing indexes and triggers to re-create ---
-    # This list will hold CREATE INDEX statements for non-unique indexes and existing unique indexes
-    # that are not redundant with the new PK or explicitly requested unique_columns.
-    create_index_statements: List[str] = []
+    create_index_statements: List[str] = [] # For existing non-unique and non-redundant unique indexes
     create_trigger_statements: List[str] = []
 
     # Query sqlite_master for original table's indexes and triggers
@@ -107,30 +117,33 @@ def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[st
     cur.execute(f"PRAGMA index_list({_table_name_});")
     existing_indexName_to_isUnique_map = {idx_name: idx_unique for idx_seq, idx_name, idx_unique, idx_origin, idx_partial in cur}
 
+    current_nonauto_indexes = []
     original_create_table_sql = None
     for nonauto_type, nonauto_name, nonauto_sql in nonauto_master_entries:
         if nonauto_type == 'table' and nonauto_name == table_name:
             original_create_table_sql = nonauto_sql
         elif nonauto_type == 'index':
+            current_nonauto_indexes.append(nonauto_name)
+            # Get columns for this index using PRAGMA index_info
+            cur.execute(f"PRAGMA index_info({qt(nonauto_name)});")
+            current_index_cols_frozenset = frozenset([name for _, _, name, *_ in cur])
+
             current_index_is_unique = existing_indexName_to_isUnique_map.get(nonauto_name) == 1
 
             if current_index_is_unique:
-                # Get columns for this unique index using PRAGMA index_info
-                cur.execute(f"PRAGMA index_info('{nonauto_name}');")
-                index_columns_info = cur
-                current_index_cols_frozenset = frozenset([name for _, _, name, *_ in index_columns_info])
-
-                # If this unique index's columns are already covered by our planned constraints, skip recreating it.
+                # If this existing unique index's columns are already covered by our planned new *unique* constraints
+                # (PK or unique_column_sets param), then we skip recreating this existing one.
                 if current_index_cols_frozenset in all_covered_unique_column_sets:
-                    # print(f"Skip redundant existing unique index '{nonauto_name}' (columns: {', '.join(current_index_cols_frozenset)}) because its functionality is covered.", file=sys.stderr)
+                    # print(f"Skip redundant existing unique index '{nonauto_name}' (columns: {', '.join(current_index_cols_frozenset)}) because its functionality is covered by new unique constraints.", file=sys.stderr)
                     continue
-
-                # If we decide to recreate this existing unique index, add its columns to our covered set.
+                # If not redundant, this existing unique index WILL be recreated. Mark its columns as uniquely covered.
                 all_covered_unique_column_sets.add(current_index_cols_frozenset)
+            
+            # This existing index (unique or non-unique, if not skipped above) will be recreated.
+            # Add its columns to the general set of all final index columns.
+            all_final_index_column_sets.add(current_index_cols_frozenset)
+            create_index_statements.append(nonauto_sql) # Add the SQL for this existing index to be recreated.
 
-            # Add the CREATE INDEX statement for non-unique indexes or non-redundant unique indexes.
-            # The SQL from sqlite_master correctly references the original table name, which will be the new table name after RENAME.
-            create_index_statements.append(nonauto_sql)
         elif nonauto_type == 'trigger':
             # Triggers generally refer to the table name, which will be correct after RENAME
             create_trigger_statements.append(nonauto_sql)
@@ -153,22 +166,20 @@ def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[st
         quoted_pk_columns = [qt(col) for col in pk_columns]
         create_table_sql += f",\nPRIMARY KEY ({', '.join(quoted_pk_columns)})"
 
-    # IMPORTANT: We no longer add UNIQUE constraints directly into the CREATE TABLE statement here.
-    # Instead, they will be created as separate UNIQUE INDEXes to allow them to be dropped later.
     # Close the column definitions and add STRICT if applicable
-    create_table_sql += "\n)"
+    create_table_sql += '\n)'
     if is_strict_table:
-        create_table_sql += " STRICT"
+        create_table_sql += ' STRICT'
 
     # print(f"For new_table_name:\n{create_table_sql}", file=sys.stderr)
 
-    # --- Generate CREATE UNIQUE INDEX statements for unique_columns parameter ---
+    # --- Generate CREATE UNIQUE INDEX statements for unique_column_sets parameter ---
     # These are explicitly requested unique constraints that will become separate, droppable indexes.
     explicit_unique_index_statements: List[str] = []
-    if unique_columns:
-        for unique_constraint in unique_columns:
+    if unique_column_sets:
+        for unique_constraint in unique_column_sets:
             uc_frozenset = frozenset(unique_constraint)
-            # Only generate an explicit unique index if it's not already covered by PK or an existing unique index we plan to recreate.
+            # Only generate an explicit unique index if it's not already covered by PK or an existing unique index we kept.
             if uc_frozenset not in all_covered_unique_column_sets:
                 unique_cols = [col for col in unique_constraint]
                 quoted_unique_cols = [qt(col) for col in unique_constraint]
@@ -179,38 +190,86 @@ def recreate_table(cur: sqlite3.Cursor, table_name: str, pk_columns: Sequence[st
                 explicit_unique_index_statements.append(
                     f"CREATE UNIQUE INDEX {_index_name_} ON {_table_name_} ({', '.join(quoted_unique_cols)});"
                 )
-                # Add to all_covered_unique_column_sets to prevent any future duplication
+                # Add to both covered sets to prevent any future duplication, especially by regular indexes
                 all_covered_unique_column_sets.add(uc_frozenset)
+                all_final_index_column_sets.add(uc_frozenset)
 
-    cur.execute("PRAGMA foreign_keys=OFF;")
-    cur.execute("PRAGMA legacy_alter_table=ON;")
-    cur.execute("BEGIN TRANSACTION;")
+    # --- Generate CREATE INDEX statements for index_column_sets parameter (regular indexes) ---
+    explicit_regular_index_statements: List[str] = []
+    if index_column_sets:
+        for index_constraint in index_column_sets:
+            ic_frozenset = frozenset(index_constraint)
+            # Only generate a regular index if it's not already covered by any existing index or
+            # explicitly requested unique/regular index.
+            if ic_frozenset not in all_final_index_column_sets:
+                regular_cols = [col for col in index_constraint]
+                quoted_regular_cols = [qt(col) for col in index_constraint]
+                # Create a deterministic name for the new regular index
+                index_name_suffix = '_'.join(col for col in regular_cols)
+                _index_name_ = qt(f"idx_r_{table_name}_{index_name_suffix}")
+
+                explicit_regular_index_statements.append(
+                    f"CREATE INDEX {_index_name_} ON {_table_name_} ({', '.join(quoted_regular_cols)});"
+                )
+                # Add to the general set of all final index columns to prevent future duplication
+                all_final_index_column_sets.add(ic_frozenset)
+    
+    cur.execute('PRAGMA foreign_keys=OFF;')
+    cur.execute('PRAGMA legacy_alter_table=ON;')
+    cur.execute('BEGIN TRANSACTION;')
     try:
         cur.execute(create_table_sql)
-        quoted_columns_list_str = ", ".join(quoted_column_names)
-        cur.execute(f"INSERT INTO {_new_table_name_} ({quoted_columns_list_str}) SELECT {quoted_columns_list_str} FROM {_table_name_};")
-        cur.execute(f"DROP TABLE {_table_name_};")
-        cur.execute(f"ALTER TABLE {_new_table_name_} RENAME TO {_table_name_};")
 
-        # --- Recreate explicit unique indexes generated from unique_columns parameter ---
+        # drop old indexes to make room for new ones with the same names
+        for index_name in current_nonauto_indexes:
+            cur.execute(f"DROP INDEX IF EXISTS {index_name};")
+
+        # --- Recreate explicit unique indexes generated from unique_column_sets parameter ---
         for sql in explicit_unique_index_statements:
-            # print(f"Explicit: {sql}", file=sys.stderr)
+            # Replace original table name with the new temporary table name for creation
+            sql = sql.replace(f" ON {_table_name_} ", f" ON {_new_table_name_} ")
+            # print(f"Explicit Unique (temp): {sql}", file=sys.stderr)
             cur.execute(sql)
 
         # --- Recreate other indexes (existing non-unique and non-redundant existing unique) ---
         for sql in create_index_statements:
-            # print(f"Existing: {sql}", file=sys.stderr)
+            # Replace original table name with the new temporary table name for creation
+            sql = sql.replace(f" ON {_table_name_} ", f" ON {_new_table_name_} ")
+            # print(f"Existing (temp): {sql}", file=sys.stderr)
             cur.execute(sql)
 
+        # --- Create new regular indexes from index_column_sets parameter ---
+        for sql in explicit_regular_index_statements:
+            # Replace original table name with the new temporary table name for creation
+            sql = sql.replace(f" ON {_table_name_} ", f" ON {_new_table_name_} ")
+            # print(f"Explicit Regular (temp): {sql}", file=sys.stderr)
+            cur.execute(sql)
+
+        icur = conn.cursor()
+        for row in cur.execute(f"SELECT {', '.join(quoted_column_names)} FROM {_table_name_};"):
+            try:
+                sql = f"INSERT INTO {_new_table_name_} VALUES ({', '.join('?' for _ in row)});"
+                icur.execute(sql, row)
+            except sqlite3.DatabaseError as e:
+                print(sql.replace('?', '{!r}').format(*row), file=sys.stderr)
+                raise e
+        icur.close()
+        cur.execute(f"DROP TABLE {_table_name_};")
+        cur.execute(f"ALTER TABLE {_new_table_name_} RENAME TO {_table_name_};")
+
+        # After renaming the table, the indexes (unique, regular, existing) created on the temporary
+        # table will now correctly apply to the new permanent table.
+        # No need to re-execute them here.
+        
         # --- Recreate triggers ---
         for sql in create_trigger_statements:
             # print(f":: {sql}", file=sys.stderr)
             cur.execute(sql)
 
-        cur.execute("COMMIT;")
+        cur.execute('COMMIT;')
     except Exception as e:
-        cur.execute("ROLLBACK;")
+        cur.execute('ROLLBACK;')
         raise e
     finally:
-        cur.execute("PRAGMA foreign_keys=ON;")
-        cur.execute("PRAGMA legacy_alter_table=OFF;")
+        cur.execute('PRAGMA foreign_keys=ON;')
+        cur.execute('PRAGMA legacy_alter_table=OFF;')
