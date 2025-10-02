@@ -49,14 +49,20 @@ def qt(name: str) -> str:
     if len(name) > 64 and QT_NAME64_OLD_TO_NEW:
         for old, new in QT_NAME64_OLD_TO_NEW.items():
             name = name.replace(old, new)
-    if len(name) > 64:
-        raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
     if RX_VALID_UNQUOTED_IDENTIFIER.match(name) and name.upper() not in SQLITE_KEYWORDS:
+        raise_error_if_over_64(name)
         value = name
     else:
         # If the name itself contains double quotes, they need to be escaped by doubling them.
-        value = f'"{name.replace('"', '""')}"'
+        name = name.replace('"', '""')
+        raise_error_if_over_64(name)
+        value = f'"{name}"'
     return value
+
+
+def raise_error_if_over_64(name):
+    if len(name) > 64:
+        raise ValueError(f"Identifier {name!r} is too long. SQLite3 has a maximum identifier length of 64 characters.")
 
 
 def recreate_table(conn: sqlite3.Connection, table_name: str, pk_columns: Sequence[str] = None, unique_column_sets: Sequence[Sequence[str]] = None, index_column_sets: Sequence[Sequence[str]] = None):
