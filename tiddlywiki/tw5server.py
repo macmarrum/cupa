@@ -10,7 +10,6 @@ import sys
 import time
 import zipfile
 from http import HTTPStatus
-from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Set
 
@@ -56,13 +55,14 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     ALLOWED_CLIENT_ADDRESSES_PATH = me.parent / 'allowed-client-addresses.txt'
     ALLOWED_CLIENT_ADDRESSES = load_allowed_client_addresses(ALLOWED_CLIENT_ADDRESSES_PATH)
     FORBIDDEN_PATHS_PATH = me.parent / 'forbidden-paths.txt'
-    FORBIDDEN_PATHS = load_forbidden_paths(FORBIDDEN_PATHS_PATH)
+    forbidden_paths = load_forbidden_paths(FORBIDDEN_PATHS_PATH)
     TO_TW5_TABLE = '?to-tw5-table'
     TO_JIRA_TABLE = '?to-jira-table'
     STARTFILE = '?startfile'
     RX_TIMESTAMP = re.compile(r'[?&]timestamp=\d{13}$')
     MAX_COL = 12
     MAX_ROW = 70
+    _ignore_path_for_forbidden_paths = False
 
     @property
     def is_for_tw5(self):
@@ -97,18 +97,20 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if not self.parse_request():
                 # An error code has been sent, just exit
                 return
-            #<macmarrum>
+            # <macmarrum>
             ip = self.client_address[0]
             if ip not in self.ALLOWED_CLIENT_ADDRESSES:
                 print(f"** {ip} not in {self.ALLOWED_CLIENT_ADDRESSES_PATH.name}: {self.ALLOWED_CLIENT_ADDRESSES}")
+                self._ignore_path_for_forbidden_paths = True
                 self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
                 self.wfile.flush()  # actually send the response if not already done.
                 return
-            if self.path in self.FORBIDDEN_PATHS:
+            if self.path in self.forbidden_paths:
+                self._ignore_path_for_forbidden_paths = True
                 self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
                 self.wfile.flush()  # actually send the response if not already done.
                 return
-            #</macmarrum>
+            # </macmarrum>
             mname = 'do_' + self.command
             if not hasattr(self, mname):
                 self.send_error(
@@ -123,6 +125,17 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.log_error("Request timed out: %r", e)
             self.close_connection = True
             return
+
+    def send_error(self, code, message=None, explain=None):
+        """Before sending error, on 404 adds path to forbidden-paths.txt, unless instructed to skip (because path's already there)"""
+        if code == HTTPStatus.NOT_FOUND:
+            if self._ignore_path_for_forbidden_paths:
+                self._ignore_path_for_forbidden_paths = False
+            else:
+                self.forbidden_paths.add(self.path)
+                with self.FORBIDDEN_PATHS_PATH.open('a', encoding=UTF8) as fo:
+                    fo.write(f"{self.path}\n")
+        super().send_error(code, message, explain)
 
     def log_message(self, format, *args):
         msg = f"{self.client_address[0]} - - [{date_time_string()}] {format % args}\n"
@@ -272,5 +285,5 @@ print(f":: Python {sys.version}")
 print(f":: {date_time} -- serving '{os.getcwd()}' at {ip} {port}")
 print(f":: {date_time} -- WORK_DIR: {WORK_DIR}")
 print(f":: {date_time} -- allowed client addresses: {MySimpleHTTPRequestHandler.ALLOWED_CLIENT_ADDRESSES}")
-print(f":: {date_time} -- forbidden paths: {MySimpleHTTPRequestHandler.FORBIDDEN_PATHS}")
+print(f":: {date_time} -- forbidden paths: {MySimpleHTTPRequestHandler.forbidden_paths}")
 httpd.serve_forever()
