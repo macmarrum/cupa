@@ -101,12 +101,10 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             ip = self.client_address[0]
             if ip not in self.ALLOWED_CLIENT_ADDRESSES:
                 print(f"** {ip} not in {self.ALLOWED_CLIENT_ADDRESSES_PATH.name}: {self.ALLOWED_CLIENT_ADDRESSES}")
-                self._ignore_path_for_forbidden_paths = True
                 self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
                 self.wfile.flush()  # actually send the response if not already done.
                 return
             if self.path in self.forbidden_paths:
-                self._ignore_path_for_forbidden_paths = True
                 self.send_error(HTTPStatus.FORBIDDEN, 'Forbidden')
                 self.wfile.flush()  # actually send the response if not already done.
                 return
@@ -127,14 +125,11 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
     def send_error(self, code, message=None, explain=None):
-        """Before sending error, on 404 adds path to forbidden-paths.txt, unless instructed to skip (because path's already there)"""
+        """On NOT_FOUND, before sending error, adds path to FORBIDDEN_PATHS_PATH"""
         if code == HTTPStatus.NOT_FOUND:
-            if self._ignore_path_for_forbidden_paths:
-                self._ignore_path_for_forbidden_paths = False
-            else:
-                self.forbidden_paths.add(self.path)
-                with self.FORBIDDEN_PATHS_PATH.open('a', encoding=UTF8) as fo:
-                    fo.write(f"{self.path}\n")
+            self.forbidden_paths.add(self.path)
+            with self.FORBIDDEN_PATHS_PATH.open('a', encoding=UTF8) as fo:
+                fo.write(f"{self.path}\n")
         super().send_error(code, message, explain)
 
     def log_message(self, format, *args):
@@ -190,6 +185,7 @@ class MySimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             super().end_headers()
             return bytes_msg
         except (FileNotFoundError, OSError):
+            self._ignore_path_for_forbidden_paths = True
             self.send_error(HTTPStatus.NOT_FOUND, f"File not found: `{path}'")  # 404
             return None
 
