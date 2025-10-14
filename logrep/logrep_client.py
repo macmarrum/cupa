@@ -24,7 +24,12 @@ def grep(argv=None):
         print(resp.text, file=sys.stderr)
         return
     print(resp.headers)
-    d = resp.json()
+    try:
+        d = resp.json()
+    except requests.exceptions.JSONDecodeError:
+        print(resp.text, file=sys.stderr)
+        print(sys.exc_info(), file=sys.stderr)
+        return
     if matches := d.get('matches'):
         max_num = matches[-1][0]
         size = len(str(max_num))
