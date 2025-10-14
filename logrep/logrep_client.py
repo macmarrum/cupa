@@ -11,9 +11,12 @@ def grep(argv=None):
     parser.add_argument('url')
     parser.add_argument('pattern')
     parser.add_argument('-A', '--after-context', default=-1, type=int, )
+    parser.add_argument('-p', '--profile')
     args = parser.parse_args(argv)
     _after_context = f"&after_context={args.after_context}" if args.after_context != -1 else ''
-    url = f"{args.url.rstrip('/')}/search?pattern={args.pattern}{_after_context}"
+    _profile = f"&profile={args.profile}" if args.profile else ''
+    url = f"{args.url.rstrip('/')}/search?pattern={args.pattern}{_after_context}{_profile}"
+    print(url)
     resp = requests.get(url, headers={'Accept-Encoding': 'zstd, br, gzip, deflate'})
     resp.raise_for_status()
     print(resp.headers)
