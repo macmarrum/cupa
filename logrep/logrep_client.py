@@ -36,3 +36,7 @@ def grep(argv=None):
             prev_num = num
     else:
         print(d.get('details'))
+
+
+if __name__ == '__main__':
+    grep()
