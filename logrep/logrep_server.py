@@ -52,10 +52,10 @@ async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_
 
 
 def load_config():
-    config_path = Path("logrep_server.toml")
+    config_path = Path('logrep_server.toml')
     if not config_path.exists():
-        raise HTTPException(status_code=500, detail="Configuration file not found")
-    with open(config_path, "rb") as f:
+        raise HTTPException(status_code=500, detail='Configuration file not found')
+    with open(config_path, 'rb') as f:
         return tomllib.load(f)
 
 
@@ -71,19 +71,19 @@ class SearchResponse(BaseModel):
 async def _search_logs_common(pattern_str: str, after_context: int | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
     if pattern_str == '':
-        raise HTTPException(status_code=400, detail="pattern must not be empty")
+        raise HTTPException(status_code=400, detail='pattern must not be empty')
 
     config = load_config()
-    log_path = Path(config["log_file"])
+    log_path = Path(config['log_file'])
 
     if not log_path.exists():
-        raise HTTPException(status_code=404, detail="Log file not found")
+        raise HTTPException(status_code=404, detail='Log file not found')
 
-    config_after_context = config.get("after_context", DEFAULT_AFTER_CONTEXT)
+    config_after_context = config.get('after_context', DEFAULT_AFTER_CONTEXT)
     final_after_context = after_context if after_context is not None else config_after_context
 
     if final_after_context < 0:
-        raise HTTPException(status_code=400, detail="after_context must be non-negative")
+        raise HTTPException(status_code=400, detail='after_context must be non-negative')
 
     try:
         pattern = re.compile(pattern_str)
@@ -114,14 +114,13 @@ async def search_logs_post(search_request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def main(hostname=None, port=None):
+def main(host='0.0.0.0', port=8080):
     import uvicorn
 
-    hostname = hostname or socket.gethostname()
-    port = port or 8080
+    hostname = socket.gethostname()
     url = f"http://{hostname}:{port}/{uuid4_str}/search?pattern="
     print(f"Starting Log Grep Server: {url}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
