@@ -12,15 +12,17 @@ from pathlib import Path
 from typing import List, Tuple
 
 import aiofiles
+from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from starlette_compress import CompressMiddleware
+from zstd_asgi import ZstdMiddleware
 
 logging.basicConfig(format='{asctime} {levelname} {funcName}: {msg}', style='{', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-app.add_middleware(CompressMiddleware, minimum_size=500)
+app.add_middleware(ZstdMiddleware, minimum_size=500)
+app.add_middleware(BrotliMiddleware, minimum_size=500)
 
 uuid4_str = uuid.uuid4()
 
