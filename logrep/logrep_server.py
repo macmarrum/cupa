@@ -32,7 +32,7 @@ DEFAULT_AFTER_CONTEXT = 5
 @dataclass
 class Settings:
     profile: str
-    log_path: Path
+    log_path: Path = Path('/__not_set__')
     after_context: int | None = None
     host: str = '0.0.0.0'
     port: int = 8000
@@ -129,10 +129,10 @@ async def _search_logs_common(pattern_str: str, after_context: int | None = None
 
     settings = profile_to_settings.get(profile or TOP_LEVEL)
     if not settings:
-        raise HTTPException(status_code=404, detail=f"Profile not found: {profile}")
+        raise HTTPException(status_code=404, detail=f"Profile not found: {profile!r}")
 
     if not settings.log_path.exists():
-        raise HTTPException(status_code=404, detail='Log file not found')
+        raise HTTPException(status_code=404, detail=f"Log file not found: {settings.log_path.__str__()!r}")
 
     config_after_context = settings.after_context or DEFAULT_AFTER_CONTEXT
     final_after_context = after_context if after_context is not None else config_after_context
