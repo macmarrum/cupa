@@ -98,6 +98,8 @@ async def _search_logs_common(pattern_str: str, after_context: int | None = None
 async def search_logs_get(pattern: str, after_context: int | None = None):
     try:
         return await _search_logs_common(pattern, after_context)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -106,6 +108,8 @@ async def search_logs_get(pattern: str, after_context: int | None = None):
 async def search_logs_post(search_request: SearchRequest):
     try:
         return await _search_logs_common(search_request.pattern, search_request.after_context)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
