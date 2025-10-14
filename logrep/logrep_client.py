@@ -2,6 +2,7 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
+import sys
 
 import requests
 
@@ -18,7 +19,10 @@ def grep(argv=None):
     url = f"{args.url.rstrip('/')}/search?pattern={args.pattern}{_after_context}{_profile}"
     print(url)
     resp = requests.get(url, headers={'Accept-Encoding': 'zstd, br, gzip, deflate'})
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        print(resp.status_code, resp.reason, file=sys.stderr)
+        print(resp.text, file=sys.stderr)
+        return
     print(resp.headers)
     d = resp.json()
     if matches := d.get('matches'):
