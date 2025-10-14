@@ -6,6 +6,7 @@ import uuid
 
 import aiofiles
 from fastapi import FastAPI, HTTPException
+from starlette_compress import CompressMiddleware
 from pydantic import BaseModel
 import re
 import tomllib
@@ -13,6 +14,7 @@ from typing import List, Tuple
 from pathlib import Path
 
 app = FastAPI()
+app.add_middleware(CompressMiddleware, minimum_size=500)
 
 uuid4_str = uuid.uuid4()
 
@@ -118,7 +120,7 @@ def main(host='0.0.0.0', port=8080):
     import uvicorn
 
     hostname = socket.gethostname()
-    url = f"http://{hostname}:{port}/{uuid4_str}/search?pattern="
+    url = f"http://{hostname}:{port}/{uuid4_str}"
     print(f"Starting Log Grep Server: {url}")
     uvicorn.run(app, host=host, port=port)
 

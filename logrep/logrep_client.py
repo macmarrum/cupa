@@ -14,8 +14,9 @@ def grep(argv=None):
     args = parser.parse_args(argv)
     _after_context = f"&after_context={args.after_context}" if args.after_context != -1 else ''
     url = f"{args.url.rstrip('/')}/search?pattern={args.pattern}{_after_context}"
-    resp = requests.get(url)
+    resp = requests.get(url, headers={'Accept-Encoding': 'zstd, br, gzip, deflate'})
     resp.raise_for_status()
+    print(resp.headers)
     d = resp.json()
     if matches := d.get('matches'):
         max_num = matches[-1][0]
