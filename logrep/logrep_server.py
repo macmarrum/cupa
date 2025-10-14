@@ -122,8 +122,9 @@ class SearchResponse(BaseModel):
     matches: List[tuple[int, str]]
 
 
-async def _search_logs_common(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
+async def search_logs(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
+    logger.info(f"profile={profile!r}, pattern={pattern_str!r}, after_context={after_context!r}")
     if pattern_str == '':
         raise HTTPException(status_code=400, detail='pattern must not be empty')
 
@@ -146,13 +147,14 @@ async def _search_logs_common(pattern_str: str, after_context: int | None = None
         raise HTTPException(status_code=400, detail=f"Invalid regex pattern: {str(e)}")
 
     matches = await get_lines_between_matches(settings.log_path, pattern, final_after_context)
+    logger.info(f"Found {len(matches)} matches in {settings.log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
 @app.get(f"/{uuid4_str}/search")
 async def search_logs_get(pattern: str, after_context: int | None = None, profile: str | None = None):
     try:
-        return await _search_logs_common(pattern, after_context, profile)
+        return await search_logs(pattern, after_context, profile)
     except HTTPException:
         raise
     except Exception as e:
@@ -164,7 +166,7 @@ async def search_logs_get(pattern: str, after_context: int | None = None, profil
 @app.post(f"/{uuid4_str}/search")
 async def search_logs_post(search_request: SearchRequest):
     try:
-        return await _search_logs_common(search_request.pattern, search_request.after_context, search_request.profile)
+        return await search_logs(search_request.pattern, search_request.after_context, search_request.profile)
     except HTTPException:
         raise
     except Exception as e:
