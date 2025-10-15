@@ -9,7 +9,9 @@ import tomllib
 import traceback
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from string import Template
 
 from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, HTTPException
@@ -27,14 +29,11 @@ app.add_middleware(BrotliMiddleware, minimum_size=500)
 @dataclass
 class Settings:
     profile: str
-    log_path: Path = Path('/__not_set__')
+    log_path: str = '/__not_set__'
     after_context: int = 0
     host: str = '0.0.0.0'
     port: int = 8000
     uuid: str = str(uuid.uuid4())
-
-    def __post_init__(self):
-        self.log_path = Path(self.log_path)
 
 
 TOP_LEVEL = 'top-level'
@@ -75,6 +74,7 @@ def load_config():
 
 profile_to_settings = load_config()
 top_level_settings = profile_to_settings[TOP_LEVEL]
+
 
 async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_context: int, pattern_str: str = None):
     """
@@ -122,13 +122,33 @@ class SearchResponse(BaseModel):
     matches: list[tuple[int, str]]
 
 
-# special chars could be escaped or bracketed [] to make them literal
-# bracketing not accounter for, hence "possibly"
+# Note: special chars could be either escaped or bracketed [] to make them literal
+# Bracketing is not accounter for here, hence "possibly"
 RX_POSSIBLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
 
 
 def is_possibly_complex_pattern(pattern: str):
     return RX_POSSIBLY_COMPLEX_PATTERN.search(pattern) is not None
+
+
+class TimeTemplate(Template):
+    """Substitutes time spec at the current time, specified within <...>, e.g. <%m/%d %Y> => 10/15 2025"""
+    flags = re.VERBOSE  # to override the default re.IGNORECASE
+    delimiter = '<'
+    idpattern = '[^>]+>'
+
+    def substitute(self, mapping=None, **kwargs):
+        if mapping is None:
+            mapping = {}
+
+        class TimeWrapper:
+            def __getitem__(self, key):
+                if key.endswith('>'):
+                    fmt = key[:-1]
+                    return datetime.now().strftime(fmt)
+                return mapping.get(key, '')
+
+        return super().substitute(TimeWrapper())
 
 
 async def search_logs(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
@@ -141,8 +161,9 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     if not settings:
         raise HTTPException(status_code=404, detail=f"Profile not found: {profile!r}")
 
-    if not settings.log_path.exists():
-        raise HTTPException(status_code=404, detail=f"Log file not found: {settings.log_path.__str__()!r}")
+    log_path = Path(TimeTemplate(settings.log_path).substitute())
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail=f"Log file not found: {log_path.__str__()!r}")
 
     after_context = after_context if after_context is not None else settings.after_context
 
@@ -157,8 +178,8 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     else:
         pattern = None
 
-    matches = await get_lines_between_matches(settings.log_path, pattern, after_context, pattern_str)
-    logger.info(f"Found {len(matches)} matches in {settings.log_path.__str__()!r}")
+    matches = await get_lines_between_matches(log_path, pattern, after_context, pattern_str)
+    logger.info(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
