@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
+import asyncio
 import logging
 import re
 import socket
@@ -9,9 +10,7 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
 
-import aiofiles
 from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -24,18 +23,15 @@ app = FastAPI()
 app.add_middleware(ZstdMiddleware, minimum_size=500)
 app.add_middleware(BrotliMiddleware, minimum_size=500)
 
-uuid4_str = uuid.uuid4()
-
-DEFAULT_AFTER_CONTEXT = 5
-
 
 @dataclass
 class Settings:
     profile: str
     log_path: Path = Path('/__not_set__')
-    after_context: int | None = None
+    after_context: int = 0
     host: str = '0.0.0.0'
     port: int = 8000
+    uuid: str = str(uuid.uuid4())
 
     def __post_init__(self):
         self.log_path = Path(self.log_path)
@@ -78,38 +74,42 @@ def load_config():
 
 
 profile_to_settings = load_config()
+top_level_settings = profile_to_settings[TOP_LEVEL]
 
-
-async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_context: int) -> List[Tuple[int, str]]:
+async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_context: int, pattern_str: str = None):
     """
     Search through a file and return matching lines with specified number of lines after each match.
 
     :param file_path: Path to the file to search
     :param pattern: Compiled regular expression pattern
     :param after_context: Number of lines to show after each match
+    :param pattern_str: Simple string pattern to search for
     :returns: List of tuples containing (line_number, line_content)
     """
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    matches = []
-    lines_after = 0
-    last_match_line = -1
-
-    async with aiofiles.open(file_path, 'r') as file:
+    def file_reader():
+        matches = []
         line_num = 0
-        async for line in file:
-            line_num += 1
+        lines_after = 0
+        last_match_line = -1
 
-            if pattern.search(line):
-                matches.append((line_num, line.rstrip()))
-                lines_after = 0
-                last_match_line = line_num
-            elif lines_after < after_context and last_match_line != -1:
-                matches.append((line_num, line.rstrip()))
-                lines_after += 1
+        with open(file_path, 'r') as file:
+            for line in file:
+                line_num += 1
 
-    return matches
+                if (pattern and pattern.search(line)) or pattern_str in line:
+                    matches.append((line_num, line.rstrip()))
+                    lines_after = 0
+                    last_match_line = line_num
+                elif lines_after < after_context and last_match_line != -1:
+                    matches.append((line_num, line.rstrip()))
+                    lines_after += 1
+
+        return matches
+
+    return await asyncio.to_thread(file_reader)
 
 
 class SearchRequest(BaseModel):
@@ -119,7 +119,16 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    matches: List[tuple[int, str]]
+    matches: list[tuple[int, str]]
+
+
+# special chars could be escaped or bracketed [] to make them literal
+# bracketing not accounter for, hence "possibly"
+RX_POSSIBLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
+
+
+def is_possibly_complex_pattern(pattern: str):
+    return RX_POSSIBLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
 async def search_logs(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
@@ -135,23 +144,25 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     if not settings.log_path.exists():
         raise HTTPException(status_code=404, detail=f"Log file not found: {settings.log_path.__str__()!r}")
 
-    config_after_context = settings.after_context or DEFAULT_AFTER_CONTEXT
-    final_after_context = after_context if after_context is not None else config_after_context
+    after_context = after_context if after_context is not None else settings.after_context
 
-    if final_after_context < 0:
+    if after_context < 0:
         raise HTTPException(status_code=400, detail='after_context must be non-negative')
 
-    try:
-        pattern = re.compile(pattern_str)
-    except re.error as e:
-        raise HTTPException(status_code=400, detail=f"Invalid regex pattern: {str(e)}")
+    if is_possibly_complex_pattern(pattern_str):
+        try:
+            pattern = re.compile(pattern_str)
+        except re.error as e:
+            raise HTTPException(status_code=400, detail=f"Invalid regex pattern: {str(e)}")
+    else:
+        pattern = None
 
-    matches = await get_lines_between_matches(settings.log_path, pattern, final_after_context)
+    matches = await get_lines_between_matches(settings.log_path, pattern, after_context, pattern_str)
     logger.info(f"Found {len(matches)} matches in {settings.log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
-@app.get(f"/{uuid4_str}/search")
+@app.get(f"/{top_level_settings.uuid}/search")
 async def search_logs_get(pattern: str, after_context: int | None = None, profile: str | None = None):
     try:
         return await search_logs(pattern, after_context, profile)
@@ -163,7 +174,7 @@ async def search_logs_get(pattern: str, after_context: int | None = None, profil
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post(f"/{uuid4_str}/search")
+@app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(search_request: SearchRequest):
     try:
         return await search_logs(search_request.pattern, search_request.after_context, search_request.profile)
@@ -178,11 +189,10 @@ async def search_logs_post(search_request: SearchRequest):
 def main(host=None, port=None):
     import uvicorn
 
-    settings = profile_to_settings[TOP_LEVEL]
-    host = host or settings.host
-    port = port or settings.port
+    host = host or top_level_settings.host
+    port = port or top_level_settings.port
     hostname = socket.gethostname()
-    url = f"http://{hostname}:{port}/{uuid4_str}"
+    url = f"http://{hostname}:{port}/{top_level_settings.uuid}"
     logger.info(f"Starting Log Grep Server: {url}")
     uvicorn.run(app, host=host, port=port)
 
