@@ -11,8 +11,8 @@ def grep(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('url')
     pattern_gr = parser.add_mutually_exclusive_group()
-    pattern_gr.add_argument('pattern_positional', nargs='?',)
-    pattern_gr.add_argument('-P', '--pattern',)
+    pattern_gr.add_argument('pattern_positional', nargs='?', )
+    pattern_gr.add_argument('-P', '--pattern', )
     parser.add_argument('-A', '--after-context', default=-1, type=int, )
     parser.add_argument('-p', '--profile')
     args = parser.parse_args(argv)
@@ -26,7 +26,7 @@ def grep(argv=None):
         print(resp.status_code, resp.reason, file=sys.stderr)
         print(resp.text, file=sys.stderr)
         return
-    print(resp.headers)
+    print(resp.headers, end='\n\n', )
     try:
         d = resp.json()
     except requests.exceptions.JSONDecodeError:
