@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from string import Template
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, HTTPException
@@ -34,6 +35,15 @@ class Settings:
     host: str = '0.0.0.0'
     port: int = 8000
     uuid: str = str(uuid.uuid4())
+    timezone: ZoneInfo | None = None
+
+    def __post_init__(self):
+        if self.timezone:
+            try:
+                self.timezone = ZoneInfo(self.timezone)
+            except ZoneInfoNotFoundError as e:
+                logger.warning(f"{e}: {self.timezone}")
+                self.timezone = None
 
 
 TOP_LEVEL = 'top-level'
@@ -131,24 +141,19 @@ def is_possibly_complex_pattern(pattern: str):
     return RX_POSSIBLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
-class TimeTemplate(Template):
+class StrftimeTemplate(Template):
     """Substitutes time spec at the current time, specified within <...>, e.g. <%m/%d %Y> => 10/15 2025"""
     flags = re.VERBOSE  # to override the default re.IGNORECASE
     delimiter = '<'
     idpattern = '[^>]+>'
 
     def substitute(self, mapping=None, **kwargs):
-        if mapping is None:
-            mapping = {}
-
-        class TimeWrapper:
+        class StrftimeResolver:
             def __getitem__(self, key):
-                if key.endswith('>'):
-                    fmt = key[:-1]
-                    return datetime.now().strftime(fmt)
-                return mapping.get(key, '')
+                tz = mapping.get('timezone') if mapping else None
+                return datetime.now().astimezone(tz).strftime(key[:-1])
 
-        return super().substitute(TimeWrapper())
+        return super().substitute(StrftimeResolver())
 
 
 async def search_logs(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
@@ -161,7 +166,7 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     if not settings:
         raise HTTPException(status_code=404, detail=f"Profile not found: {profile!r}")
 
-    log_path = Path(TimeTemplate(settings.log_path).substitute())
+    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone} if settings.timezone else None))
     if not log_path.exists():
         raise HTTPException(status_code=404, detail=f"Log file not found: {log_path.__str__()!r}")
 
