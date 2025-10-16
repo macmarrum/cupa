@@ -10,12 +10,12 @@ import requests
 from colorama import init, Fore, Style
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
-# Bracketing is not accounter for here, hence "possibly"
-RX_POSSIBLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
+# Bracketing is not accounter for here, hence "probably"
+RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
 
 
-def is_possibly_complex_pattern(pattern: str):
-    return RX_POSSIBLY_COMPLEX_PATTERN.search(pattern) is not None
+def is_probably_complex_pattern(pattern: str):
+    return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
 def grep(argv=None):
@@ -51,7 +51,7 @@ def grep(argv=None):
         size = len(str(max_num))
         prev_num = 0
         use_color = args.color == 'always' or (args.color == 'auto' and sys.stdout.isatty())
-        if use_color and is_possibly_complex_pattern(pattern_str):
+        if use_color and is_probably_complex_pattern(pattern_str):
             init()  # colorama
             pattern = re.compile(pattern_str)
         else:

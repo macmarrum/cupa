@@ -127,12 +127,12 @@ class SearchResponse(BaseModel):
 
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
-# Bracketing is not accounter for here, hence "possibly"
-RX_POSSIBLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
+# Bracketing is not accounter for here, hence "probably"
+RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
 
 
-def is_possibly_complex_pattern(pattern: str):
-    return RX_POSSIBLY_COMPLEX_PATTERN.search(pattern) is not None
+def is_probably_complex_pattern(pattern: str):
+    return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
 class StrftimeTemplate(Template):
@@ -196,7 +196,7 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     if after_context < 0:
         raise HTTPException(status_code=400, detail='after_context must be non-negative')
 
-    if is_possibly_complex_pattern(pattern_str):
+    if is_probably_complex_pattern(pattern_str):
         try:
             pattern = re.compile(pattern_str)
         except re.error as e:
