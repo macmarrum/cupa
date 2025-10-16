@@ -9,7 +9,7 @@ import tomllib
 import traceback
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo, timezone, timedelta
 from pathlib import Path
 from string import Template
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -35,15 +35,9 @@ class Settings:
     host: str = '0.0.0.0'
     port: int = 8000
     uuid: str = str(uuid.uuid4())
-    timezone: ZoneInfo | None = None
-
-    def __post_init__(self):
-        if self.timezone:
-            try:
-                self.timezone = ZoneInfo(self.timezone)
-            except ZoneInfoNotFoundError as e:
-                logger.warning(f"{e}: {self.timezone}")
-                self.timezone = None
+    # timezone can be any of zoneinfo.available_timezones()
+    # or an offset from UTC, e.g. -03:30, UTC-03:30, +02:00, UTC+02:00
+    timezone: str | None = None
 
 
 TOP_LEVEL = 'top-level'
@@ -142,7 +136,12 @@ def is_possibly_complex_pattern(pattern: str):
 
 
 class StrftimeTemplate(Template):
-    """Substitutes time spec at the current time, specified within <...>, e.g. <%m/%d %Y> => 10/15 2025"""
+    """
+    Substitutes the current time for the format string specified within angle brackets,
+    e.g., `Today is <%m/%d %Y>` becomes `Today is 10/16 2025`.
+    The optional mapping passed to `substitute` can specify a tzinfo instance,
+    e.g., `substitute({'timezone': ZoneInfo('Europe/Warsaw')})`
+    """
     flags = re.VERBOSE  # to override the default re.IGNORECASE
     delimiter = '<'
     idpattern = '[^>]+>'
@@ -150,8 +149,30 @@ class StrftimeTemplate(Template):
     def substitute(self, mapping=None, **kwargs):
         class StrftimeResolver:
             def __getitem__(self, key):
-                tz = mapping.get('timezone') if mapping else None
-                return datetime.now().astimezone(tz).strftime(key[:-1])
+                _timezone = mapping.get('timezone') if mapping else None
+                _tzinfo = self.parse_timezone(_timezone)
+                return datetime.now().astimezone(_tzinfo).strftime(key[:-1])
+
+            @staticmethod
+            def parse_timezone(tz: str | None) -> tzinfo | None:
+                if not tz:
+                    return None
+                if ':' in tz:
+                    hours, minutes = tz.removeprefix('UTC').split(':')
+                    try:
+                        hours = int(hours)
+                        minutes = int(minutes) * (-1 if hours < 0 else 1)
+                        offset = timedelta(hours=hours, minutes=minutes)
+                        _tzinfo = timezone(offset, name=tz)
+                    except ValueError:
+                        _tzinfo = None
+                else:
+                    try:
+                        _tzinfo = ZoneInfo(tz)
+                    except ZoneInfoNotFoundError as e:
+                        logger.warning(f"{e}: {tz}")
+                        _tzinfo = None
+                return _tzinfo
 
         return super().substitute(StrftimeResolver())
 
@@ -166,7 +187,7 @@ async def search_logs(pattern_str: str, after_context: int | None = None, profil
     if not settings:
         raise HTTPException(status_code=404, detail=f"Profile not found: {profile!r}")
 
-    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone} if settings.timezone else None))
+    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone}))
     if not log_path.exists():
         raise HTTPException(status_code=404, detail=f"Log file not found: {log_path.__str__()!r}")
 
