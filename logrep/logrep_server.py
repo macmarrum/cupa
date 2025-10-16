@@ -88,7 +88,7 @@ async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_
     :param pattern: Compiled regular expression pattern
     :param after_context: Number of lines to show after each match
     :param pattern_str: Simple string pattern to search for
-    :returns: List of tuples containing (line_number, line_content)
+    :returns: List of tuples containing (line_number, match_found, line_content)
     """
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -104,11 +104,11 @@ async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_
                 line_num += 1
 
                 if (pattern and pattern.search(line)) or pattern_str in line:
-                    matches.append((line_num, line.rstrip()))
+                    matches.append((line_num, 1, line.rstrip()))
                     lines_after = 0
                     last_match_line = line_num
                 elif lines_after < after_context and last_match_line != -1:
-                    matches.append((line_num, line.rstrip()))
+                    matches.append((line_num, 0, line.rstrip()))
                     lines_after += 1
 
         return matches
@@ -123,7 +123,7 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    matches: list[tuple[int, str]]
+    matches: list[tuple[int, int, str]]
 
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
