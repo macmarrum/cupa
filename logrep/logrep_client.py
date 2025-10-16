@@ -65,9 +65,9 @@ def grep(argv=None):
                     print('--')
             if use_color:
                 if pattern:
-                    colored_line = pattern.sub(lambda m: f"{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
+                    colored_line = pattern.sub(lambda m: f"{Style.BRIGHT}{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
                 else:
-                    colored_line = line.replace(pattern_str, f"{Fore.RED}{pattern_str}{Style.RESET_ALL}")
+                    colored_line = line.replace(pattern_str, f"{Style.BRIGHT}{Fore.RED}{pattern_str}{Style.RESET_ALL}")
                 colored_num_sep = f"{Fore.GREEN}{num:{size}d}{sep}{Style.RESET_ALL}" if args.line_number else ''
                 print(f"{colored_num_sep}{colored_line}")
             else:
