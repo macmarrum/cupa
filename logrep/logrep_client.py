@@ -71,10 +71,10 @@ def load_config():
 
 def grep(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('url')
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
     pattern_gr.add_argument('-P', '--pattern', )
+    parser.add_argument('--url')
     parser.add_argument('-A', '--after-context', default=None, type=int)
     parser.add_argument('-p', '--profile')
     parser.add_argument('-n', '--line-number', action='store_true')
