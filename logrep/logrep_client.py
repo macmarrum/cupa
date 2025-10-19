@@ -26,6 +26,7 @@ def is_probably_complex_pattern(pattern: str):
 @dataclass
 class Settings:
     url: str | None = None
+    pattern: str | None = None
     profile: str | None = None
     after_context: int | None = None
     color: str = 'never'
@@ -91,7 +92,7 @@ def grep(argv=None):
     verbose = args.verbose or settings.verbose
     color = args.color or settings.color
     _profile = f"&profile={quote(args.profile)}" if args.profile else ''
-    pattern_str = args.pattern_positional or args.pattern
+    pattern_str = args.pattern_positional or args.pattern or settings.pattern
     after_context = args.after_context or settings.after_context
     _after_context = f"&after_context={after_context}" if after_context else ''
     base_url = (args.url or settings.url).rstrip('/')
