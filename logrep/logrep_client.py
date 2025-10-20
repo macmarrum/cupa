@@ -50,11 +50,11 @@ def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     common_kwargs_for_settings = {}
     profile_to_dict = {TOP_LEVEL: {}}
     for key, value in toml_dict.items():
-        key = key.replace('-', '_')
         if isinstance(value, dict):  # gather profiles, i.e. "name": {dict, aka hash table}
             if not key.startswith('#'):  # skip profiles starting with hash (#)
                 profile_to_dict[key] = value
         else:  # gather top-level settings (common for each profile)
+            key = key.replace('-', '_')
             common_kwargs_for_settings[key] = value
     for profile, dct in profile_to_dict.items():
         kwargs_for_settings = common_kwargs_for_settings.copy()
