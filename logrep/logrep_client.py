@@ -15,8 +15,8 @@ from colorama import init, Fore, Style
 me = Path(__file__)
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
-# Bracketing is not accounter for here, hence "probably"
-RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
+# Bracketing is not accounted for here, hence "probably"
+RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
 
 
 def is_probably_complex_pattern(pattern: str):
@@ -27,7 +27,8 @@ def is_probably_complex_pattern(pattern: str):
 class Settings:
     url: str | None = None
     pattern: str | None = None
-    profile: str | None = None
+    section: str | None = None  # table in client toml
+    profile: str | None = None  # table in server toml
     after_context: int | None = None
     color: str = 'never'
     line_number: bool = False
@@ -76,6 +77,7 @@ def grep(argv=None):
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
     pattern_gr.add_argument('-P', '--pattern', )
+    parser.add_argument('-s', '--section')
     parser.add_argument('--url')
     parser.add_argument('-A', '--after-context', default=None, type=int)
     parser.add_argument('-p', '--profile')
@@ -84,19 +86,18 @@ def grep(argv=None):
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args(argv)
     profile_to_settings = load_config()
-    if args.profile:
-        settings = profile_to_settings.get(args.profile, profile_to_settings[TOP_LEVEL])
-    else:
-        settings = profile_to_settings[TOP_LEVEL]
+    settings = profile_to_settings[args.section or TOP_LEVEL]
     line_number = args.line_number or settings.line_number
     verbose = args.verbose or settings.verbose
     color = args.color or settings.color
-    _profile = f"&profile={quote(args.profile)}" if args.profile else ''
-    pattern_str = args.pattern_positional or args.pattern or settings.pattern
+    profile = args.profile or settings.profile
+    _profile = f"profile={quote(profile)}" if profile else None
+    pattern = args.pattern_positional or args.pattern or settings.pattern
+    _pattern = f"pattern={quote(pattern)}" if pattern else None
     after_context = args.after_context or settings.after_context
-    _after_context = f"&after_context={after_context}" if after_context else ''
+    _after_context = f"after_context={after_context}" if after_context else None
     base_url = (args.url or settings.url).rstrip('/')
-    url = f"{base_url}/search?pattern={quote(pattern_str)}{_after_context}{_profile}"
+    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context] if e)}"
     verbose and print(url)
     resp = requests.get(url, headers={'Accept-Encoding': 'zstd, br, gzip, deflate'})
     if resp.status_code != 200:
@@ -115,11 +116,9 @@ def grep(argv=None):
         size = len(str(max_num))
         prev_num = 0
         use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
-        if use_color and is_probably_complex_pattern(pattern_str):
+        if use_color:
             init()  # colorama
-            pattern = re.compile(pattern_str)
-        else:
-            pattern = None
+        pattern_rx = re.compile(pattern) if use_color and is_probably_complex_pattern(pattern) else None
         for num, match_found, line in matches:
             sep = ':' if match_found else '-'
             if prev_num and prev_num + 1 != num:
@@ -128,18 +127,62 @@ def grep(argv=None):
                 else:
                     print('--')
             if use_color:
-                if pattern:
-                    colored_line = pattern.sub(lambda m: f"{Style.BRIGHT}{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
-                else:
-                    colored_line = line.replace(pattern_str, f"{Style.BRIGHT}{Fore.RED}{pattern_str}{Style.RESET_ALL}")
+                _line_ = make_colored_line(line, pattern, pattern_rx) if match_found else line
                 colored_num_sep = f"{Fore.GREEN}{num:{size}d}{sep}{Style.RESET_ALL}" if line_number else ''
-                print(f"{colored_num_sep}{colored_line}")
+                print(f"{colored_num_sep}{_line_}")
             else:
                 num_sep = f"{num:{size}d}{sep}" if line_number else ''
                 print(f"{num_sep}{line}")
             prev_num = num
     else:
         print(d.get('details'))
+
+
+def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | None) -> str:
+    if pattern_rx:
+        m = pattern_rx.search(line)
+        if m.groups():
+            span_to_text = decompose_line(line, m)
+            colored_line = ''
+            for span, (is_match, text) in span_to_text.items():
+                colored_line += f"{Style.BRIGHT}{Fore.RED}{text}{Style.RESET_ALL}" if is_match else text
+        else:
+            colored_line = pattern_rx.sub(lambda m: f"{Style.BRIGHT}{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
+    else:
+        colored_line = line.replace(pattern, f"{Style.BRIGHT}{Fore.RED}{pattern}{Style.RESET_ALL}")
+    return colored_line
+
+
+def decompose_line(line: str, m: re.Match) -> dict[tuple[int, int], tuple[bool, str]]:
+    """Decomposes a line based on a regex match into a dictionary: span => (is_match, text)"""
+    if not m:
+        return {(0, len(line)): (False, line)}
+    span_to_text: dict[tuple[int, int], tuple[bool, str]] = {}
+    # 1. Handle the prefix (unmatched text before the full match)
+    prefix_span = (0, m.start(0))
+    if prefix_span[1] > prefix_span[0]:
+        span_to_text[prefix_span] = (False, line[prefix_span[0]:prefix_span[1]])
+    # Get a list of all captured group spans (index, start, end)
+    # Filter out spans where start == -1 (group didn't match, though unlikely here)
+    group_spans: list[tuple[int, int, int]] = sorted([(i, m.start(i), m.end(i)) for i in range(1, len(m.groups()) + 1) if m.start(i) != -1], key=lambda x: x[1])
+    # Initialize the current position within the full match
+    current_pos = m.start(0)
+    # 2. Iterate through all captured groups
+    for i, start, end in group_spans:
+        # A. Handle the UNMATCHED text between the last processed span (or start of match) and the current group
+        if start > current_pos:
+            unmatched_span = (current_pos, start)
+            span_to_text[unmatched_span] = (False, line[unmatched_span[0]:unmatched_span[1]])
+        # B. Handle the CAPTURED GROUP text
+        matched_span = (start, end)
+        span_to_text[matched_span] = (True, line[matched_span[0]:matched_span[1]])
+        # Update the current position
+        current_pos = end
+    # 3. Handle the suffix (unmatched text after the full match)
+    suffix_span = (m.end(0), len(line))
+    if suffix_span[1] > suffix_span[0]:
+        span_to_text[suffix_span] = (False, line[suffix_span[0]:suffix_span[1]])
+    return dict(sorted(span_to_text.items()))
 
 
 if __name__ == '__main__':
