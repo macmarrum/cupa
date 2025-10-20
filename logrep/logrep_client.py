@@ -57,12 +57,12 @@ def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
         else:  # gather top-level settings (common for each profile)
             key = key.replace('-', '_')
             common_kwargs_for_settings[key] = value
-    for profile, dct in profile_to_dict.items():
+    for section, dct in profile_to_dict.items():
         kwargs_for_settings = common_kwargs_for_settings.copy()
-        kwargs_for_settings['profile'] = profile
+        kwargs_for_settings['section'] = section
         for key, value in dct.items():
             kwargs_for_settings[key] = value
-        profile_to_settings[profile] = Settings(**kwargs_for_settings)
+        profile_to_settings[section] = Settings(**kwargs_for_settings)
     return profile_to_settings
 
 
