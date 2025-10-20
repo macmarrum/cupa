@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from zstd_asgi import ZstdMiddleware
 
-logging.basicConfig(format='{asctime} {levelname} {funcName}: {msg}', style='{', level=logging.INFO)
+logging.basicConfig(format='{asctime} {levelname}: {funcName} {msg}', style='{', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -92,6 +92,7 @@ async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, aft
     :param pattern_str: Simple string pattern to search for
     :returns: List of tuples containing (line_number, match_found, line_content)
     """
+    logger.debug(f"({file_path.name!r}, pattern_rx={pattern_rx.pattern if pattern_rx else None}, {pattern_str=}, {after_context=})")
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -181,7 +182,7 @@ class StrftimeTemplate(Template):
 
 async def search_logs(pattern: str | None = None, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
-    logger.info(f"profile={profile!r}, pattern={pattern!r}, after_context={after_context!r}")
+    logger.info(f"(profile={profile!r}, pattern={pattern!r}, after_context={after_context!r})")
 
     if profile:
         settings = profile_to_settings.get(profile)
@@ -214,7 +215,7 @@ async def search_logs(pattern: str | None = None, after_context: int | None = No
         pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
 
     matches = await get_lines_between_matches(log_path, pattern_rx, after_context, pattern_str)
-    logger.info(f"Found {len(matches)} matches in {log_path.__str__()!r}")
+    logger.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
