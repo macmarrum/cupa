@@ -76,17 +76,21 @@ def grep(argv=None):
     parser = argparse.ArgumentParser()
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
-    pattern_gr.add_argument('-P', '--pattern', )
-    parser.add_argument('-s', '--section')
+    pattern_gr.add_argument('-p', '--pattern', )
+    parser.add_argument('-S', '--section')
     parser.add_argument('--url')
     parser.add_argument('-A', '--after-context', default=None, type=int)
-    parser.add_argument('-p', '--profile')
+    parser.add_argument('-P', '--profile')
     parser.add_argument('-n', '--line-number', action='store_true')
     parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args(argv)
     profile_to_settings = load_config()
-    settings = profile_to_settings[args.section or TOP_LEVEL]
+    try:
+        settings = profile_to_settings[args.section or TOP_LEVEL]
+    except KeyError:
+        print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
+        sys.exit(1)
     line_number = args.line_number or settings.line_number
     verbose = args.verbose or settings.verbose
     color = args.color or settings.color
@@ -142,9 +146,8 @@ def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | N
     if pattern_rx:
         m = pattern_rx.search(line)
         if m.groups():
-            span_to_text = decompose_line(line, m)
             colored_line = ''
-            for span, (is_match, text) in span_to_text.items():
+            for is_match, text in decompose_into_groups(line, m):
                 colored_line += f"{Style.BRIGHT}{Fore.RED}{text}{Style.RESET_ALL}" if is_match else text
         else:
             colored_line = pattern_rx.sub(lambda m: f"{Style.BRIGHT}{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
@@ -153,36 +156,35 @@ def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | N
     return colored_line
 
 
-def decompose_line(line: str, m: re.Match) -> dict[tuple[int, int], tuple[bool, str]]:
-    """Decomposes a line based on a regex match into a dictionary: span => (is_match, text)"""
+def decompose_into_groups(line: str, m: re.Match) -> list[tuple[bool, str]]:
+    """Decomposes a line based on a regex match into a list of (is_match, text)"""
     if not m:
-        return {(0, len(line)): (False, line)}
-    span_to_text: dict[tuple[int, int], tuple[bool, str]] = {}
+        return [(False, line)]
+    result_list: list[tuple[bool, str]] = []
     # 1. Handle the prefix (unmatched text before the full match)
-    prefix_span = (0, m.start(0))
-    if prefix_span[1] > prefix_span[0]:
-        span_to_text[prefix_span] = (False, line[prefix_span[0]:prefix_span[1]])
-    # Get a list of all captured group spans (index, start, end)
-    # Filter out spans where start == -1 (group didn't match, though unlikely here)
-    group_spans: list[tuple[int, int, int]] = sorted([(i, m.start(i), m.end(i)) for i in range(1, len(m.groups()) + 1) if m.start(i) != -1], key=lambda x: x[1])
-    # Initialize the current position within the full match
+    prefix_end = m.start(0)
+    if prefix_end > 0:
+        result_list.append((False, line[0:prefix_end]))
+    # 2. Iterate through all captured groups and the text between them
     current_pos = m.start(0)
-    # 2. Iterate through all captured groups
-    for i, start, end in group_spans:
-        # A. Handle the UNMATCHED text between the last processed span (or start of match) and the current group
-        if start > current_pos:
-            unmatched_span = (current_pos, start)
-            span_to_text[unmatched_span] = (False, line[unmatched_span[0]:unmatched_span[1]])
-        # B. Handle the CAPTURED GROUP text
-        matched_span = (start, end)
-        span_to_text[matched_span] = (True, line[matched_span[0]:matched_span[1]])
-        # Update the current position
-        current_pos = end
+    for g in range(1, len(m.groups()) + 1):
+        group_start = m.start(g)
+        group_end = m.end(g)
+        group_text = m.group(g)
+        # A. Handle the UNMATCHED text between the last position and the current group's start
+        if group_start > current_pos:
+            unmatched_text = line[current_pos:group_start]
+            result_list.append((False, unmatched_text))
+        # B. Handle the CAPTURED GROUP text (is_match = True)
+        if group_text is not None:
+            result_list.append((True, group_text))
+        # Update the current position to the end of the current group
+        current_pos = group_end
     # 3. Handle the suffix (unmatched text after the full match)
-    suffix_span = (m.end(0), len(line))
-    if suffix_span[1] > suffix_span[0]:
-        span_to_text[suffix_span] = (False, line[suffix_span[0]:suffix_span[1]])
-    return dict(sorted(span_to_text.items()))
+    suffix_start = m.end(0)
+    if suffix_start < len(line):
+        result_list.append((False, line[suffix_start:len(line)]))
+    return result_list
 
 
 if __name__ == '__main__':
