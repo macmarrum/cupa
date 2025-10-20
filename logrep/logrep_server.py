@@ -31,6 +31,7 @@ app.add_middleware(BrotliMiddleware, minimum_size=500)
 class Settings:
     profile: str
     log_path: str = '/__not_set__'
+    pattern: str = ''
     after_context: int = 0
     host: str = '0.0.0.0'
     port: int = 8000
@@ -81,12 +82,12 @@ profile_to_settings = load_config()
 top_level_settings = profile_to_settings[TOP_LEVEL]
 
 
-async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_context: int, pattern_str: str = None):
+async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, after_context: int, pattern_str: str = None):
     """
     Search through a file and return matching lines with specified number of lines after each match.
 
     :param file_path: Path to the file to search
-    :param pattern: Compiled regular expression pattern
+    :param pattern_rx: Compiled regular expression pattern
     :param after_context: Number of lines to show after each match
     :param pattern_str: Simple string pattern to search for
     :returns: List of tuples containing (line_number, match_found, line_content)
@@ -104,7 +105,7 @@ async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_
             for line in file:
                 line_num += 1
 
-                if (pattern and pattern.search(line)) or pattern_str in line:
+                if (pattern_rx and pattern_rx.search(line)) or pattern_str in line:
                     matches.append((line_num, 1, line.rstrip()))
                     lines_after = 0
                     last_match_line = line_num
@@ -118,7 +119,7 @@ async def get_lines_between_matches(file_path: Path, pattern: re.Pattern, after_
 
 
 class SearchRequest(BaseModel):
-    pattern: str
+    pattern: str | None = None
     after_context: int | None = None
     profile: str | None = None
 
@@ -128,8 +129,8 @@ class SearchResponse(BaseModel):
 
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
-# Bracketing is not accounter for here, hence "probably"
-RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[\]{}.*+?^$|]')
+# Bracketing is not accounted for here, hence "probably"
+RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
 
 
 def is_probably_complex_pattern(pattern: str):
@@ -178,40 +179,45 @@ class StrftimeTemplate(Template):
         return super().substitute(StrftimeResolver())
 
 
-async def search_logs(pattern_str: str, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
+async def search_logs(pattern: str | None = None, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
-    logger.info(f"profile={profile!r}, pattern={pattern_str!r}, after_context={after_context!r}")
-    if pattern_str == '':
-        raise HTTPException(status_code=400, detail='pattern must not be empty')
+    logger.info(f"profile={profile!r}, pattern={pattern!r}, after_context={after_context!r}")
 
-    settings = profile_to_settings.get(profile or TOP_LEVEL)
-    if not settings:
-        raise HTTPException(status_code=404, detail=f"Profile not found: {profile!r}")
+    if profile:
+        settings = profile_to_settings.get(profile)
+        if not settings:
+            raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
+    else:
+        settings = top_level_settings
+
+    pattern = pattern or settings.pattern
+    if not pattern:
+        raise HTTPException(status_code=400, detail='pattern must not be empty')
 
     log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone}))
     if not log_path.exists():
-        raise HTTPException(status_code=404, detail=f"Log file not found: {log_path.__str__()!r}")
+        raise HTTPException(status_code=404, detail=f"log_path doesn't exist: {log_path.__str__()!r}")
 
     after_context = after_context if after_context is not None else settings.after_context
 
     if after_context < 0:
         raise HTTPException(status_code=400, detail='after_context must be non-negative')
 
-    if is_probably_complex_pattern(pattern_str):
+    if is_probably_complex_pattern(pattern):
         try:
-            pattern = re.compile(pattern_str)
+            pattern_rx = re.compile(pattern)
         except re.error as e:
-            raise HTTPException(status_code=400, detail=f"Invalid regex pattern: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"pattern {e}: {pattern!r}")
     else:
-        pattern = None
+        pattern_rx = None
 
-    matches = await get_lines_between_matches(log_path, pattern, after_context, pattern_str)
+    matches = await get_lines_between_matches(log_path, pattern_rx, after_context, pattern)
     logger.info(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
 @app.get(f"/{top_level_settings.uuid}/search")
-async def search_logs_get(pattern: str, after_context: int | None = None, profile: str | None = None):
+async def search_logs_get(pattern: str | None = None, after_context: int | None = None, profile: str | None = None):
     try:
         return await search_logs(pattern, after_context, profile)
     except HTTPException:
