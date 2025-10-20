@@ -131,7 +131,7 @@ class SearchResponse(BaseModel):
 # Note: special chars could be either escaped or bracketed [] to make them literal
 # Bracketing is not accounted for here, hence "probably"
 RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
-
+RX_ESCAPE_FOLLOWED_BY_SPECIAL = re.compile(r'\\(?=[()\[{.*+?^$|])')
 
 def is_probably_complex_pattern(pattern: str):
     return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
@@ -206,12 +206,14 @@ async def search_logs(pattern: str | None = None, after_context: int | None = No
     if is_probably_complex_pattern(pattern):
         try:
             pattern_rx = re.compile(pattern)
+            pattern_str = None
         except re.error as e:
             raise HTTPException(status_code=400, detail=f"pattern {e}: {pattern!r}")
     else:
         pattern_rx = None
+        pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
 
-    matches = await get_lines_between_matches(log_path, pattern_rx, after_context, pattern)
+    matches = await get_lines_between_matches(log_path, pattern_rx, after_context, pattern_str)
     logger.info(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 

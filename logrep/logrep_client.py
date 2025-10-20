@@ -17,6 +17,7 @@ me = Path(__file__)
 # Note: special chars could be either escaped or bracketed [] to make them literal
 # Bracketing is not accounted for here, hence "probably"
 RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
+RX_ESCAPE_FOLLOWED_BY_SPECIAL = re.compile(r'\\(?=[()\[{.*+?^$|])')
 
 
 def is_probably_complex_pattern(pattern: str):
@@ -122,7 +123,12 @@ def grep(argv=None):
         use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
         if use_color:
             init()  # colorama
-        pattern_rx = re.compile(pattern) if use_color and is_probably_complex_pattern(pattern) else None
+        if use_color:
+            if is_probably_complex_pattern(pattern):
+                pattern_rx = re.compile(pattern)
+            else:
+                pattern_rx = None
+                pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
         for num, match_found, line in matches:
             sep = ':' if match_found else '-'
             if prev_num and prev_num + 1 != num:
