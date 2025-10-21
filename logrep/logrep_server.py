@@ -106,7 +106,7 @@ async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, aft
             for line in file:
                 line_num += 1
 
-                if (pattern_rx and pattern_rx.search(line)) or pattern_str in line:
+                if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
                     matches.append((line_num, 1, line.rstrip()))
                     lines_after = 0
                     last_match_line = line_num
