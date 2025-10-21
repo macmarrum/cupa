@@ -154,7 +154,7 @@ class StrftimeTemplate(Template):
             def __getitem__(self, key):
                 _timezone = mapping.get('timezone') if mapping else None
                 _tzinfo = self.parse_timezone(_timezone)
-                return datetime.now().astimezone(_tzinfo).strftime(key[:-1])
+                return datetime.now(_tzinfo).strftime(key[:-1])
 
             @staticmethod
             def parse_timezone(tz: str | None) -> tzinfo | None:
@@ -167,13 +167,14 @@ class StrftimeTemplate(Template):
                         minutes = int(minutes) * (-1 if hours < 0 else 1)
                         offset = timedelta(hours=hours, minutes=minutes)
                         _tzinfo = timezone(offset, name=tz)
-                    except ValueError:
+                    except ValueError as e:
+                        logger.warning(f"parse_timezone {e}: {tz}")
                         _tzinfo = None
                 else:
                     try:
                         _tzinfo = ZoneInfo(tz)
                     except ZoneInfoNotFoundError as e:
-                        logger.warning(f"{e}: {tz}")
+                        logger.warning(f"parse_timezone {e}: {tz}")
                         _tzinfo = None
                 return _tzinfo
 
