@@ -104,11 +104,7 @@ def grep(argv=None):
     base_url = (args.url or settings.url).rstrip('/')
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context] if e)}"
     verbose and print(url)
-    resp = requests.get(url, headers={'Accept-Encoding': 'zstd, br, gzip, deflate'})
-    if resp.status_code != 200:
-        print(resp.status_code, resp.reason, file=sys.stderr)
-        print(resp.text, file=sys.stderr)
-        return
+    resp = requests_get_or_exit(url)
     verbose and print(resp.headers)
     try:
         d = resp.json()
@@ -120,14 +116,13 @@ def grep(argv=None):
         max_num = matches[-1][0]
         size = len(str(max_num))
         prev_num = 0
+        pattern_rx = None
         use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
         if use_color:
             init()  # colorama
-        if use_color:
             if is_probably_complex_pattern(pattern):
                 pattern_rx = re.compile(pattern)
             else:
-                pattern_rx = None
                 pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
         for num, match_found, line in matches:
             sep = ':' if match_found else '-'
@@ -137,15 +132,32 @@ def grep(argv=None):
                 else:
                     print('--')
             if use_color:
-                _line_ = make_colored_line(line, pattern, pattern_rx) if match_found else line
                 colored_num_sep = f"{Fore.GREEN}{num:{size}d}{sep}{Style.RESET_ALL}" if line_number else ''
+                _line_ = make_colored_line(line, pattern, pattern_rx) if match_found else line
                 print(f"{colored_num_sep}{_line_}")
             else:
                 num_sep = f"{num:{size}d}{sep}" if line_number else ''
                 print(f"{num_sep}{line}")
             prev_num = num
     else:
-        print(d.get('details'))
+        print(d.get('details'), file=sys.stderr)
+
+
+HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
+
+
+def requests_get_or_exit(url: str) -> requests.Response:
+    try:
+        resp = requests.get(url, headers=HEADERS)
+    except requests.ConnectionError as e:
+        et = type(e)
+        print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
+        sys.exit(1)
+    if resp.status_code != 200:
+        print(resp.status_code, resp.reason, file=sys.stderr)
+        print(resp.text, file=sys.stderr)
+        sys.exit(1)
+    return resp
 
 
 def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | None) -> str:
