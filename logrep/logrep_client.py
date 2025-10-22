@@ -103,9 +103,10 @@ def grep(argv=None):
     _after_context = f"after_context={after_context}" if after_context else None
     base_url = (args.url or settings.url).rstrip('/')
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context] if e)}"
-    verbose and print(url)
+    use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
+    verbose and print(f"{Fore.BLUE}{url}{Style.RESET_ALL}" if use_color else url)
     resp = requests_get_or_exit(url)
-    verbose and print(resp.headers)
+    verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers)
     try:
         d = resp.json()
     except requests.exceptions.JSONDecodeError:
@@ -117,7 +118,6 @@ def grep(argv=None):
         size = len(str(max_num))
         prev_num = 0
         pattern_rx = None
-        use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
         if use_color:
             init()  # colorama
             if is_probably_complex_pattern(pattern):
