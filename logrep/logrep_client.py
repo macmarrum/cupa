@@ -104,7 +104,7 @@ def grep(argv=None):
     base_url = (args.url or settings.url).rstrip('/')
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
-    verbose and print(f"{Fore.BLUE}{url}{Style.RESET_ALL}" if use_color else url)
+    verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url)
     resp = requests_get_or_exit(url)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers)
     try:
