@@ -118,7 +118,7 @@ def grep(argv=None):
         size = len(str(max_num))
         prev_num = 0
         pattern_rx = None
-        if use_color:
+        if use_color and pattern:
             init()  # colorama
             if is_probably_complex_pattern(pattern):
                 pattern_rx = re.compile(pattern)
@@ -161,6 +161,8 @@ def requests_get_or_exit(url: str) -> requests.Response:
 
 
 def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | None) -> str:
+    if not pattern and not pattern_rx:
+        return line
     if pattern_rx:
         m = pattern_rx.search(line)
         if m.groups():
