@@ -36,7 +36,7 @@ class Settings:
     verbose: bool = False
 
 
-TOP_LEVEL = 'top-level'
+TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
 
 

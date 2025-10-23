@@ -41,7 +41,7 @@ class Settings:
     timezone: str | None = None
 
 
-TOP_LEVEL = 'top-level'
+TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
 
 
