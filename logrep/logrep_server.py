@@ -10,6 +10,7 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, tzinfo, timezone, timedelta
+from ipaddress import IPv4Address
 from pathlib import Path
 from string import Template
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -19,8 +20,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from zstd_asgi import ZstdMiddleware
 
-logging.basicConfig(format='{asctime} {levelname}: {funcName} {msg}', style='{', level=logging.INFO)
-logger = logging.getLogger(__name__)
+me = Path(__file__)
+
+logging.basicConfig(format='{asctime} {levelname} {name}: {funcName} {message}', style='{', level=logging.INFO)
+logger = logging.getLogger(me.stem)
 
 app = FastAPI()
 app.add_middleware(ZstdMiddleware, minimum_size=500)
@@ -238,9 +241,9 @@ async def get_matching_lines(file_path: Path, pattern: str | re.Pattern | None, 
     discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
     discard_after_str = discard_after if isinstance(discard_after, str) else None
     logger.info(f"({file_path.name!r}, "
-                f"pattern_rx={pattern_rx.pattern if pattern_rx else None}, {pattern_str=}, {after_context=}, "
-                f"discard_before_rx={discard_before_rx if discard_before_rx else None}, {discard_before_str=}, "
-                f"discard_after_rx={discard_after_rx if discard_after_rx else None}, {discard_after_str=})")
+                f"discard_before={discard_before_rx if discard_before_rx else discard_before_str!r} [{'rx' if discard_before_rx else 'str'}], "
+                f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rx' if pattern_rx else 'str'}], {after_context=}, "
+                f"discard_after={discard_after_rx if discard_after_rx else discard_after_str!r} [{'rx' if discard_after_rx else 'str'}])")
 
     def file_reader():
         matches = []
@@ -276,10 +279,35 @@ def main(host=None, port=None):
 
     host = host or top_level_settings.host
     port = port or top_level_settings.port
-    hostname = socket.gethostname()
+    hostname = host if IPv4Address(host).is_loopback else socket.gethostname()
     url = f"http://{hostname}:{port}/{top_level_settings.uuid}"
-    logger.info(f"Starting Log Grep Server: {url}")
-    uvicorn.run(app, host=host, port=port)
+    logger.info(f"Starting LogGrep Server: {url}")
+    uvicorn.run(app, host=host, port=port,
+                log_config={
+                    'version': 1,
+                    'level': 'INFO',
+                    'disable_existing_loggers': False,
+                    'formatters': {
+                        'f1': {
+                            '()': 'uvicorn.logging.DefaultFormatter',
+                            'format': '{asctime} {levelname} {name}: {message}',
+                            'style': '{',
+                        },
+                    },
+                    'handlers': {
+                        'to_stderr': {
+                            'class': 'logging.StreamHandler',
+                            'stream': 'ext://sys.stderr',
+                            'formatter': 'f1',
+                        },
+                    },
+                    'loggers': {
+                        'uvicorn': {'handlers': ['to_stderr']},
+                        'uvicorn.error': {'handlers': ['to_stderr'], 'propagate': False},
+                        'uvicorn.access': {'handlers': ['to_stderr'], 'propagate': False},
+                    },
+                },
+                )
 
 
 if __name__ == "__main__":
