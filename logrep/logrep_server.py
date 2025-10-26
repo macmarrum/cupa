@@ -82,43 +82,6 @@ profile_to_settings = load_config()
 top_level_settings = profile_to_settings[TOP_LEVEL]
 
 
-async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, after_context: int, pattern_str: str = None):
-    """
-    Search through a file and return matching lines with specified number of lines after each match.
-
-    :param file_path: Path to the file to search
-    :param pattern_rx: Compiled regular expression pattern
-    :param after_context: Number of lines to show after each match
-    :param pattern_str: Simple string pattern to search for
-    :returns: List of tuples containing (line_number, match_found, line_content)
-    """
-    logger.debug(f"({file_path.name!r}, pattern_rx={pattern_rx.pattern if pattern_rx else None}, {pattern_str=}, {after_context=})")
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    def file_reader():
-        matches = []
-        line_num = 0
-        lines_after = 0
-        last_match_line = -1
-
-        with open(file_path, 'r') as file:
-            for line in file:
-                line_num += 1
-
-                if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
-                    matches.append((line_num, 1, line.rstrip()))
-                    lines_after = 0
-                    last_match_line = line_num
-                elif lines_after < after_context and last_match_line != -1:
-                    matches.append((line_num, 0, line.rstrip()))
-                    lines_after += 1
-
-        return matches
-
-    return await asyncio.to_thread(file_reader)
-
-
 class SearchRequest(BaseModel):
     pattern: str | None = None
     after_context: int | None = None
@@ -129,13 +92,28 @@ class SearchResponse(BaseModel):
     matches: list[tuple[int, int, str]]
 
 
-# Note: special chars could be either escaped or bracketed [] to make them literal
-# Bracketing is not accounted for here, hence "probably"
-RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
-RX_ESCAPE_FOLLOWED_BY_SPECIAL = re.compile(r'\\(?=[()\[{.*+?^$|])')
+@app.get(f"/{top_level_settings.uuid}/search")
+async def search_logs_get(pattern: str | None = None, after_context: int | None = None, profile: str | None = None):
+    try:
+        return await search_logs(pattern, after_context, profile)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
-def is_probably_complex_pattern(pattern: str):
-    return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
+
+@app.post(f"/{top_level_settings.uuid}/search")
+async def search_logs_post(search_request: SearchRequest):
+    try:
+        return await search_logs(search_request.pattern, search_request.after_context, search_request.profile)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class StrftimeTemplate(Template):
@@ -184,27 +162,21 @@ class StrftimeTemplate(Template):
 async def search_logs(pattern: str | None = None, after_context: int | None = None, profile: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
     logger.info(f"(profile={profile!r}, pattern={pattern!r}, after_context={after_context!r})")
-
     if profile:
         settings = profile_to_settings.get(profile)
         if not settings:
             raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
     else:
         settings = top_level_settings
-
     pattern = pattern or settings.pattern
     if not pattern:
         raise HTTPException(status_code=400, detail='pattern must not be empty')
-
     log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone}))
     if not log_path.exists():
         raise HTTPException(status_code=404, detail=f"log_path doesn't exist: {log_path.__str__()!r}")
-
     after_context = after_context if after_context is not None else settings.after_context
-
     if after_context < 0:
         raise HTTPException(status_code=400, detail='after_context must be non-negative')
-
     if is_probably_complex_pattern(pattern):
         try:
             pattern_rx = re.compile(pattern)
@@ -214,34 +186,53 @@ async def search_logs(pattern: str | None = None, after_context: int | None = No
     else:
         pattern_rx = None
         pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
-
     matches = await get_lines_between_matches(log_path, pattern_rx, after_context, pattern_str)
     logger.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
-@app.get(f"/{top_level_settings.uuid}/search")
-async def search_logs_get(pattern: str | None = None, after_context: int | None = None, profile: str | None = None):
-    try:
-        return await search_logs(pattern, after_context, profile)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+# Note: special chars could be either escaped or bracketed [] to make them literal
+# Bracketing is not accounted for here, hence "probably"
+RX_PROBABLY_COMPLEX_PATTERN = re.compile(r'(?<!\\)[()\[{.*+?^$|]|\\[AbdDsSwWzZ]')
+RX_ESCAPE_FOLLOWED_BY_SPECIAL = re.compile(r'\\(?=[()\[{.*+?^$|])')
 
 
-@app.post(f"/{top_level_settings.uuid}/search")
-async def search_logs_post(search_request: SearchRequest):
-    try:
-        return await search_logs(search_request.pattern, search_request.after_context, search_request.profile)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+def is_probably_complex_pattern(pattern: str):
+    return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
+
+
+async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, after_context: int, pattern_str: str = None):
+    """
+    Search through a file and return matching lines with specified number of lines after each match.
+
+    :param file_path: Path to the file to search
+    :param pattern_rx: Compiled regular expression pattern
+    :param after_context: Number of lines to show after each match
+    :param pattern_str: Simple string pattern to search for
+    :returns: List of tuples containing (line_number, match_found, line_content)
+    """
+    logger.debug(f"({file_path.name!r}, pattern_rx={pattern_rx.pattern if pattern_rx else None}, {pattern_str=}, {after_context=})")
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    def file_reader():
+        matches = []
+        line_num = 0
+        lines_after = 0
+        last_match_line = -1
+        with open(file_path, 'r') as file:
+            for line in file:
+                line_num += 1
+                if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
+                    matches.append((line_num, 1, line.rstrip()))
+                    lines_after = 0
+                    last_match_line = line_num
+                elif lines_after < after_context and last_match_line != -1:
+                    matches.append((line_num, 0, line.rstrip()))
+                    lines_after += 1
+        return matches
+
+    return await asyncio.to_thread(file_reader)
 
 
 def main(host=None, port=None):
