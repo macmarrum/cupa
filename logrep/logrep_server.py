@@ -212,8 +212,6 @@ async def get_lines_between_matches(file_path: Path, pattern_rx: re.Pattern, aft
     :returns: List of tuples containing (line_number, match_found, line_content)
     """
     logger.debug(f"({file_path.name!r}, pattern_rx={pattern_rx.pattern if pattern_rx else None}, {pattern_str=}, {after_context=})")
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
 
     def file_reader():
         matches = []
