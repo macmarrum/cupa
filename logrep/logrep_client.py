@@ -26,13 +26,15 @@ def is_probably_complex_pattern(pattern: str):
 
 @dataclass
 class Settings:
-    url: str | None = None
-    pattern: str | None = None
     section: str | None = None  # table in client toml
     profile: str | None = None  # table in server toml
+    url: str | None = None
+    discard_before: str | None = None
+    pattern: str | None = None
     after_context: int | None = None
-    color: str = 'never'
+    discard_after: str | None = None
     line_number: bool = False
+    color: str = 'never'
     verbose: bool = False
 
 
@@ -73,15 +75,24 @@ def load_config():
         return {TOP_LEVEL: {}}
 
 
+class MatchType:
+    discard_before = 'D'
+    pattern = 'p'
+    after_context = 'A'
+    discard_after = 'd'
+
+
 def grep(argv=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('-S', '--section')
+    parser.add_argument('-P', '--profile')
+    parser.add_argument('--url')
+    parser.add_argument('-D', '--discard-before')
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
-    pattern_gr.add_argument('-p', '--pattern', )
-    parser.add_argument('-S', '--section')
-    parser.add_argument('--url')
+    pattern_gr.add_argument('-p', '--pattern')
     parser.add_argument('-A', '--after-context', default=None, type=int)
-    parser.add_argument('-P', '--profile')
+    parser.add_argument('-d', '--discard-after')
     parser.add_argument('-n', '--line-number', action='store_true')
     parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
     parser.add_argument('--verbose', action='store_true')
@@ -92,17 +103,21 @@ def grep(argv=None):
     except KeyError:
         print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
         sys.exit(1)
-    line_number = args.line_number or settings.line_number
-    verbose = args.verbose or settings.verbose
-    color = args.color or settings.color
     profile = args.profile or settings.profile
     _profile = f"profile={quote(profile)}" if profile else None
+    base_url = (args.url or settings.url).rstrip('/')
+    discard_before = args.discard_before or settings.discard_before
+    _discard_before = f"discard_before={quote(discard_before)}" if discard_before else None
     pattern = args.pattern_positional or args.pattern or settings.pattern
     _pattern = f"pattern={quote(pattern)}" if pattern else None
     after_context = args.after_context or settings.after_context
     _after_context = f"after_context={after_context}" if after_context else None
-    base_url = (args.url or settings.url).rstrip('/')
-    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context] if e)}"
+    discard_after = args.discard_after or settings.discard_after
+    _discard_after = f"discard_after={quote(discard_after)}" if discard_after else None
+    color = args.color or settings.color
+    line_number = args.line_number or settings.line_number
+    verbose = args.verbose or settings.verbose
+    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
     verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url)
     resp = requests_get_or_exit(url)
@@ -124,8 +139,8 @@ def grep(argv=None):
                 pattern_rx = re.compile(pattern)
             else:
                 pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
-        for num, match_found, line in matches:
-            sep = ':' if match_found else '-'
+        for num, match_type, line in matches:
+            sep = ':' if match_type == MatchType.pattern else '-'
             if prev_num and prev_num + 1 != num:
                 if use_color:
                     print(f"{Fore.GREEN}--{Fore.RESET}")
@@ -133,7 +148,7 @@ def grep(argv=None):
                     print('--')
             if use_color:
                 colored_num_sep = f"{Fore.GREEN}{num:{size}d}{sep}{Style.RESET_ALL}" if line_number else ''
-                _line_ = make_colored_line(line, pattern, pattern_rx) if match_found else line
+                _line_ = make_colored_line(line, pattern, pattern_rx) if match_type == MatchType.pattern else line
                 print(f"{colored_num_sep}{_line_}")
             else:
                 num_sep = f"{num:{size}d}{sep}" if line_number else ''
