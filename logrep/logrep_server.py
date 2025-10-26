@@ -252,7 +252,7 @@ async def get_matching_lines(file_path: Path, pattern: str | re.Pattern | None, 
         last_match_line = -1
         with open(file_path, 'r') as file:
             for line_ in file:
-                line = line_.rstrip('\n')
+                line = line_.rstrip('\r\n')
                 line_num += 1
                 if (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
                     matches.append((line_num, MatchType.discard_after, line))
