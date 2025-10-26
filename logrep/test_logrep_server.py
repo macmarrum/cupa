@@ -47,7 +47,7 @@ async def test_get_matching_lines__pattern_str_plain(context):
         (4, MatchType.pattern, 'line 4 four cuatro'),
         (14, MatchType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, None, None)
+    actual = await get_matching_lines(file_path, None, pattern, 0, None)
     assert actual == expected
 
 
@@ -58,7 +58,7 @@ async def test_get_matching_lines__pattern_rx_plain(context):
         (4, MatchType.pattern, 'line 4 four cuatro'),
         (14, MatchType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, None, None)
+    actual = await get_matching_lines(file_path, None, pattern, 0, None)
     assert actual == expected
 
 
@@ -69,7 +69,7 @@ async def test_get_matching_lines__pattern_str_escaped(context):
         (5, MatchType.pattern, 'line 5.five cinco'),
         (15, MatchType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, None, None)
+    actual = await get_matching_lines(file_path, None, pattern, 0, None)
     assert actual == expected
 
 
@@ -82,7 +82,7 @@ async def test_get_matching_lines__pattern_rx_escaped(context):
         (5, MatchType.pattern, 'line 5.five cinco'),
         (15, MatchType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, None, None)
+    actual = await get_matching_lines(file_path, None, pattern, 0, None)
     assert actual == expected
 
 
@@ -92,7 +92,7 @@ async def test_get_matching_lines__discard_after_str_plain(context):
     expected = [
         (2, MatchType.discard_after, 'line 2 two dos'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, None, discard_after)
+    actual = await get_matching_lines(file_path, None, None, 0, discard_after)
     assert actual == expected
 
 
@@ -102,7 +102,7 @@ async def test_get_matching_lines__discard_before_str_plain(context):
     expected = [
         (19, MatchType.discard_before, 'line 19 nineteen diecinueve'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, discard_before, None)
+    actual = await get_matching_lines(file_path, discard_before, None, 0, None)
     assert actual == expected
 
 
@@ -115,7 +115,7 @@ async def test_get_matching_lines__pattern__discard_after(context):
         (10, MatchType.pattern, 'line 10 ten diez'),
         (11, MatchType.discard_after, 'line 11 eleven once'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, None, discard_after)
+    actual = await get_matching_lines(file_path, None, pattern, 0, discard_after)
     assert actual == expected
 
 
@@ -128,7 +128,7 @@ async def test_get_matching_lines__pattern__discard_before(context):
         (12, MatchType.pattern, 'line 12 twelve doce'),
         (20, MatchType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = await get_matching_lines(file_path, pattern, 0, discard_before, None)
+    actual = await get_matching_lines(file_path, discard_before, pattern, 0, None)
     assert actual == expected
 
 
@@ -143,7 +143,7 @@ async def test_get_matching_lines__pattern__after_context__discard_after(context
         (10, MatchType.pattern, 'line 10 ten diez'),
         (11, MatchType.discard_after, 'line 11 eleven once'),
     ]
-    actual = await get_matching_lines(file_path, pattern, after_context, None, discard_after)
+    actual = await get_matching_lines(file_path, None, pattern, after_context, discard_after)
     assert actual == expected
 
 
@@ -158,5 +158,5 @@ async def test_get_matching_lines__pattern__after_context__discard_before(contex
         (13, MatchType.after_context, 'line 13 thirteen trece'),
         (20, MatchType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = await get_matching_lines(file_path, pattern, after_context, discard_before, None)
+    actual = await get_matching_lines(file_path, discard_before, pattern, after_context, None)
     assert actual == expected
