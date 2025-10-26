@@ -2,7 +2,8 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
-import logging
+import logging.handlers
+import queue
 import re
 import socket
 import tomllib
@@ -22,10 +23,27 @@ from zstd_asgi import ZstdMiddleware
 
 me = Path(__file__)
 
-logging.basicConfig(format='{asctime} {levelname} {name}: {funcName} {message}', style='{', level=logging.INFO)
-logger = logging.getLogger(me.stem)
+formatter = logging.Formatter('{asctime} {levelname} {name} [{funcName}] {message}', style='{')
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+log_queue = queue.SimpleQueue()
+queue_handler = logging.handlers.QueueHandler(log_queue)
+queue_listener = logging.handlers.QueueListener(log_queue, console_handler, respect_handler_level=False)
 
-app = FastAPI()
+logging.getLogger().setLevel(logging.INFO)
+log = logging.getLogger(me.stem)
+log.addHandler(queue_handler)
+
+
+def fastapi_lifespan(app: FastAPI):
+    log.info("Starting log_queue listener")
+    queue_listener.start()
+    yield
+    log.info("Stopping log_queue listener")
+    queue_listener.stop()
+
+
+app = FastAPI(lifespan=fastapi_lifespan)
 app.add_middleware(ZstdMiddleware, minimum_size=500)
 app.add_middleware(BrotliMiddleware, minimum_size=500)
 
@@ -106,8 +124,8 @@ async def search_logs_get(profile: str | None = None, pattern: str | None = None
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        logger.error(traceback.format_exc())
+        log.error(f"Search error: {str(e)}")
+        log.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -118,8 +136,8 @@ async def search_logs_post(sr: SearchRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        logger.error(traceback.format_exc())
+        log.error(f"Search error: {str(e)}")
+        log.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -153,13 +171,13 @@ class StrftimeTemplate(Template):
                         offset = timedelta(hours=hours, minutes=minutes)
                         _tzinfo = timezone(offset, name=tz)
                     except ValueError as e:
-                        logger.warning(f"parse_timezone {e}: {tz}")
+                        log.warning(f"parse_timezone {e}: {tz}")
                         _tzinfo = None
                 else:
                     try:
                         _tzinfo = ZoneInfo(tz)
                     except ZoneInfoNotFoundError as e:
-                        logger.warning(f"parse_timezone {e}: {tz}")
+                        log.warning(f"parse_timezone {e}: {tz}")
                         _tzinfo = None
                 return _tzinfo
 
@@ -178,7 +196,7 @@ def is_probably_complex_pattern(pattern: str):
 
 async def search_logs(profile: str | None = None, pattern: str | None = None, after_context: int | None = None, discard_before: str | None = None, discard_after: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
-    logger.info(f"(profile={profile!r}, pattern={pattern!r}, after_context={after_context!r})")
+    log.info(f"(profile={profile!r}, pattern={pattern!r}, after_context={after_context!r})")
     if profile:
         settings = profile_to_settings.get(profile)
         if not settings:
@@ -218,7 +236,7 @@ async def search_logs(profile: str | None = None, pattern: str | None = None, af
         else:
             discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_after)
     matches = await get_matching_lines(log_path, pattern, after_context, discard_before, discard_after)
-    logger.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
+    log.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
@@ -240,10 +258,10 @@ async def get_matching_lines(file_path: Path, pattern: str | re.Pattern | None, 
     discard_before_str = discard_before if isinstance(discard_before, str) else None
     discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
     discard_after_str = discard_after if isinstance(discard_after, str) else None
-    logger.info(f"({file_path.name!r}, "
-                f"discard_before={discard_before_rx if discard_before_rx else discard_before_str!r} [{'rx' if discard_before_rx else 'str'}], "
-                f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rx' if pattern_rx else 'str'}], {after_context=}, "
-                f"discard_after={discard_after_rx if discard_after_rx else discard_after_str!r} [{'rx' if discard_after_rx else 'str'}])")
+    log.info(f"({file_path.name!r}, "
+                f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'rgx' if discard_before_rx else 'str'}], "
+                f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rgx' if pattern_rx else 'str'}], {after_context=}, "
+                f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'rgx' if discard_after_rx else 'str'}])")
 
     def _get_matching_lines():
         matches = []
@@ -281,33 +299,18 @@ def main(host=None, port=None):
     port = port or top_level_settings.port
     hostname = host if IPv4Address(host).is_loopback else socket.gethostname()
     url = f"http://{hostname}:{port}/{top_level_settings.uuid}"
-    logger.info(f"Starting LogGrep Server: {url}")
-    uvicorn.run(app, host=host, port=port,
-                log_config={
-                    'version': 1,
-                    'level': 'INFO',
-                    'disable_existing_loggers': False,
-                    'formatters': {
-                        'f1': {
-                            '()': 'uvicorn.logging.DefaultFormatter',
-                            'format': '{asctime} {levelname} {name}: {message}',
-                            'style': '{',
-                        },
-                    },
-                    'handlers': {
-                        'to_stderr': {
-                            'class': 'logging.StreamHandler',
-                            'stream': 'ext://sys.stderr',
-                            'formatter': 'f1',
-                        },
-                    },
-                    'loggers': {
-                        'uvicorn': {'handlers': ['to_stderr']},
-                        'uvicorn.error': {'handlers': ['to_stderr'], 'propagate': False},
-                        'uvicorn.access': {'handlers': ['to_stderr'], 'propagate': False},
-                    },
-                },
-                )
+    log.info(f"Starting logrep server: {url}")
+    log_config = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'to_queue': {'()': lambda: queue_handler},
+        },
+        'loggers': {
+            'uvicorn': {'handlers': ['to_queue']},
+        },
+    }
+    uvicorn.run(app, host=host, port=port, log_config=log_config)
 
 
 if __name__ == "__main__":

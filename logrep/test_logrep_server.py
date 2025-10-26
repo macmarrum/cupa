@@ -1,10 +1,9 @@
-import logging
 import re
 from textwrap import dedent
 
 import pytest
 
-from logrep.logrep_server import get_matching_lines, logger, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, MatchType
+from logrep.logrep_server import get_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, MatchType
 
 
 @pytest.fixture
