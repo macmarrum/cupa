@@ -245,7 +245,7 @@ async def get_matching_lines(file_path: Path, pattern: str | re.Pattern | None, 
                 f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rx' if pattern_rx else 'str'}], {after_context=}, "
                 f"discard_after={discard_after_rx if discard_after_rx else discard_after_str!r} [{'rx' if discard_after_rx else 'str'}])")
 
-    def file_reader():
+    def _get_matching_lines():
         matches = []
         line_num = 0
         lines_after = 0
@@ -271,7 +271,7 @@ async def get_matching_lines(file_path: Path, pattern: str | re.Pattern | None, 
                     lines_after += 1
         return matches
 
-    return await asyncio.to_thread(file_reader)
+    return await asyncio.to_thread(_get_matching_lines)
 
 
 def main(host=None, port=None):
