@@ -280,7 +280,7 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                     matches.append((line_num, MatchType.discard_before, line))
                     lines_after = 0
                     last_match_line = -1
-                elif (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
+                if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
                     matches.append((line_num, MatchType.pattern, line))
                     lines_after = 0
                     last_match_line = line_num

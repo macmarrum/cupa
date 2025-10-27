@@ -160,3 +160,16 @@ async def test_get_matching_lines__pattern__after_context__discard_before(contex
     ]
     actual = await get_matching_lines(file_path, discard_before, pattern, after_context, None)
     assert actual == expected
+
+async def test_get_matching_lines__pattern__after_context__discard_before__same_as_pattern(context):
+    file_path = context['file_path']
+    discard_before = '11'
+    pattern = '11'
+    after_context = 1
+    expected = [
+        (11, MatchType.discard_before, 'line 11 eleven once'),
+        (11, MatchType.pattern, 'line 11 eleven once'),
+        (12, MatchType.after_context, 'line 12 twelve doce'),
+    ]
+    actual = await get_matching_lines(file_path, discard_before, pattern, after_context, None)
+    assert actual == expected
