@@ -72,7 +72,7 @@ def load_config():
     try:
         return make_profile_to_settings_from_toml_path(me.with_suffix('.toml'))
     except FileNotFoundError:
-        return {TOP_LEVEL: {}}
+        return {TOP_LEVEL: Settings()}
 
 
 class MatchType:
