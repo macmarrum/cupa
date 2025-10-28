@@ -263,7 +263,7 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
              f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rgx' if pattern_rx else 'str'}], {after_context=}, "
              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'rgx' if discard_after_rx else 'str'}])")
 
-    def _get_matching_lines():
+    def _get_matching_lines(discard_before_already_found=False):
         matches = []
         line_num = 0
         lines_after = 0
@@ -276,17 +276,19 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                     matches.append((line_num, MatchType.discard_after, line))
                     break
                 if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
+                    discard_before_already_found = True
                     matches.clear()
                     matches.append((line_num, MatchType.discard_before, line))
-                    lines_after = 0
-                    last_match_line = -1
-                if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
-                    matches.append((line_num, MatchType.pattern, line))
-                    lines_after = 0
-                    last_match_line = line_num
-                elif lines_after < after_context and last_match_line != -1:
-                    matches.append((line_num, MatchType.after_context, line))
-                    lines_after += 1
+                if discard_before_already_found or (not discard_before_rx and not discard_before_str):
+                    if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
+                        matches.append((line_num, MatchType.pattern, line))
+                        lines_after = 0
+                        last_match_line = line_num
+                    elif lines_after < after_context and last_match_line != -1:
+                        matches.append((line_num, MatchType.after_context, line))
+                        lines_after += 1
+        if (discard_before_rx or discard_before_str) and not discard_before_already_found and (pattern_rx or pattern_str):
+            return _get_matching_lines(discard_before_already_found=True)
         return matches
 
     return await asyncio.to_thread(_get_matching_lines)
