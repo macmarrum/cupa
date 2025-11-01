@@ -1,21 +1,36 @@
 #!/usr/bin/python3
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
-import csv
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields as dc_fields
 from typing import ClassVar
 
 
 @dataclass
 class Rule:
-    combo: list[str]
     prio: int
+    combo: list[str]
     color: str
     size: str
     key: str
     ALL: ClassVar[str] = 'ALL'
     COMBO_SEP: ClassVar[str] = '/'
+    _init_fields: ClassVar[list] = None
+
+    @classmethod
+    def from_csv(cls, line: str, delimiter: str = ',', fields: list[str] = None):
+        if fields:
+            if not cls._init_fields:
+                cls._init_fields = [f.name for f in dc_fields(cls) if f.init]
+            if fields != cls._init_fields:
+                raise ValueError(f"fields does not match Rule fields: {fields} != {cls._init_fields}")
+            kwargs = dict(zip(fields, line.split(delimiter)))
+            kwargs['prio'] = int(kwargs['prio'])
+            kwargs['combo'] = kwargs['combo'].split(Rule.COMBO_SEP)
+            return Rule(**kwargs)
+        else:
+            prio, combo, color, size, key = line.split(delimiter)
+            return Rule(int(prio), combo.split(Rule.COMBO_SEP), color, size, key)
 
 
 @dataclass
@@ -27,8 +42,8 @@ class Item:
 
 class RuleSetMatcher:
 
-    def __init__(self, rule_set: Sequence[Rule]):
-        self._rule_set = rule_set
+    def __init__(self, rule_seq: Sequence[Rule]):
+        self._rule_seq = rule_seq
 
     def matches(self, item: Item):
         for _ in self._gen_rules_matching_combo_color_size_with_highest_prio_and_matching_key(item):
@@ -49,23 +64,24 @@ class RuleSetMatcher:
     def _get_rules_matching_combo_color_size__max_prio(self, item: Item):
         matching_rules = []
         max_prio = None
-        for rule in self._rule_set:
+        for rule in self._rule_seq:
             if (item.key in rule.combo
-                    and (rule.color == item.color or rule.color == Rule.ALL)
-                    and (rule.size == item.size or rule.size == Rule.ALL)
+                    and (item.color == rule.color or rule.color == Rule.ALL)
+                    and (item.size == rule.size or rule.size == Rule.ALL)
             ):
                 matching_rules.append(rule)
                 max_prio = max(max_prio, rule.prio) if max_prio else rule.prio
         return matching_rules, max_prio
 
-
-class RulesParser:
-
     @staticmethod
-    def from_csv(text: str, delimiter: str = ','):
-        reader = csv.reader((ln for ln in text.splitlines() if ln and not ln.startswith('#')), delimiter=delimiter)
+    def from_csv(text: str, delimiter: str = ',', fields=None, fields_from_header=False, comment_indicator='#'):
+        lines_gen = (ln for ln in text.splitlines() if ln)
+        if fields_from_header:
+            header = next(lines_gen).lstrip(comment_indicator)
+            fields = header.split(delimiter)
         rules = []
-        for row in reader:
-            combo, priority, color, size, key = row
-            rules.append(Rule(combo=combo.split(Rule.COMBO_SEP), prio=int(priority), color=color, size=size, key=key))
-        return rules
+        for line in lines_gen:
+            if line.startswith(comment_indicator):
+                continue
+            rules.append(Rule.from_csv(line, delimiter, fields))
+        return RuleSetMatcher(rules)
