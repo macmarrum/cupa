@@ -2,6 +2,7 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
+import collections
 import logging.handlers
 import queue
 import re
@@ -53,6 +54,7 @@ class Settings:
     profile: str
     log_path: str = '/__not_set__'
     discard_before: str | None = None
+    before_context: int = 0
     pattern: str = ''
     after_context: int = 0
     discard_after: str | None = None
@@ -108,6 +110,7 @@ top_level_settings = profile_to_settings[TOP_LEVEL]
 class SearchRequest(BaseModel):
     profile: str | None = None
     discard_before: str | None = None
+    before_context: str | None = None
     pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
@@ -118,9 +121,9 @@ class SearchResponse(BaseModel):
 
 
 @app.get(f"/{top_level_settings.uuid}/search")
-async def search_logs_get(profile: str | None = None, pattern: str | None = None, after_context: int | None = None, discard_before: str | None = None, discard_after: str | None = None):
+async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
     try:
-        return await search_logs(profile, discard_before, pattern, after_context, discard_after)
+        return await search_logs(profile, discard_before, before_context, pattern, after_context, discard_after)
     except HTTPException:
         raise
     except Exception as e:
@@ -132,7 +135,7 @@ async def search_logs_get(profile: str | None = None, pattern: str | None = None
 @app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(sr: SearchRequest):
     try:
-        return await search_logs(sr.profile, sr.discard_before, sr.pattern, sr.after_context, sr.discard_after)
+        return await search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.after_context, sr.discard_after)
     except HTTPException:
         raise
     except Exception as e:
@@ -194,9 +197,9 @@ def is_probably_complex_pattern(pattern: str):
     return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
-async def search_logs(profile: str | None = None, discard_before: str | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
+async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
-    log.info(f"(profile={profile!r}, pattern={pattern!r}, after_context={after_context!r})")
+    log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {after_context=}, {discard_after=})")
     if profile:
         settings = profile_to_settings.get(profile)
         if not settings:
@@ -214,6 +217,9 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
                 raise HTTPException(status_code=400, detail=f"pattern {e}: {discard_before!r}")
         else:
             discard_before = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_before)
+    before_context = before_context if before_context is not None else settings.before_context
+    if before_context < 0:
+        raise HTTPException(status_code=400, detail='before_context must be non-negative')
     after_context = after_context if after_context is not None else settings.after_context
     if after_context < 0:
         raise HTTPException(status_code=400, detail='after_context must be non-negative')
@@ -235,19 +241,20 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_after)
     if not discard_before and not pattern and not discard_after:
         raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
-    matches = await get_matching_lines(log_path, discard_before, pattern, after_context, discard_after)
+    matches = await get_matching_lines(log_path, discard_before, before_context, pattern, after_context, discard_after)
     log.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(matches=matches)
 
 
 class MatchType:
     discard_before = 'D'
+    before_context = 'B'
     pattern = 'p'
     after_context = 'A'
     discard_after = 'd'
 
 
-async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
+async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
     """
     Searches through a file and return matching lines with specified number of lines after each match.
     :returns: List of tuples containing (line_number, match_found, line_content)
@@ -260,11 +267,12 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     discard_after_str = discard_after if isinstance(discard_after, str) else None
     log.info(f"({file_path.name!r}, "
              f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'rgx' if discard_before_rx else 'str'}], "
-             f"pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rgx' if pattern_rx else 'str'}], {after_context=}, "
+             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rgx' if pattern_rx else 'str'}], {after_context=}, "
              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'rgx' if discard_after_rx else 'str'}])")
+    before_deque = collections.deque(maxlen=before_context) if before_context else None
+    matches = []
 
     def _get_matching_lines(discard_before_already_found=False):
-        matches = []
         line_num = 0
         lines_after = 0
         last_match_line = -1
@@ -277,16 +285,20 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                     break
                 if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
                     discard_before_already_found = True
-                    matches.clear()
                     matches.append((line_num, MatchType.discard_before, line))
                 if discard_before_already_found or (not discard_before_rx and not discard_before_str):
                     if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
+                        while before_deque:
+                            matches.append(before_deque.popleft())
                         matches.append((line_num, MatchType.pattern, line))
                         lines_after = 0
                         last_match_line = line_num
-                    elif lines_after < after_context and last_match_line != -1:
-                        matches.append((line_num, MatchType.after_context, line))
-                        lines_after += 1
+                    else:
+                        if before_deque is not None:
+                            before_deque.append((line_num, MatchType.before_context, line))
+                        if lines_after < after_context and last_match_line != -1:
+                            matches.append((line_num, MatchType.after_context, line))
+                            lines_after += 1
         if (discard_before_rx or discard_before_str) and not discard_before_already_found and (pattern_rx or pattern_str):
             return _get_matching_lines(discard_before_already_found=True)
         return matches

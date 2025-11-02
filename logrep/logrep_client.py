@@ -30,6 +30,8 @@ class Settings:
     profile: str | None = None  # table in server toml
     url: str | None = None
     discard_before: str | None = None
+    context: int | None = None
+    before_context: int | None = None
     pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
@@ -77,6 +79,7 @@ def load_config():
 
 class MatchType:
     discard_before = 'D'
+    before_context = 'B'
     pattern = 'p'
     after_context = 'A'
     discard_after = 'd'
@@ -88,6 +91,8 @@ def grep(argv=None):
     parser.add_argument('-P', '--profile')
     parser.add_argument('--url')
     parser.add_argument('-D', '--discard-before')
+    parser.add_argument('-C', '--context', default=None, type=int)
+    parser.add_argument('-B', '--before-context', default=None, type=int)
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
     pattern_gr.add_argument('-p', '--pattern')
@@ -108,16 +113,19 @@ def grep(argv=None):
     base_url = (args.url or settings.url).rstrip('/')
     discard_before = args.discard_before or settings.discard_before
     _discard_before = f"discard_before={quote(discard_before)}" if discard_before else None
+    context = args.context or settings.context
+    before_context = args.before_context or settings.before_context or context
+    _before_context = f"before_context={before_context}" if before_context else None
     pattern = args.pattern_positional or args.pattern or settings.pattern
     _pattern = f"pattern={quote(pattern)}" if pattern else None
-    after_context = args.after_context or settings.after_context
+    after_context = args.after_context or settings.after_context or context
     _after_context = f"after_context={after_context}" if after_context else None
     discard_after = args.discard_after or settings.discard_after
     _discard_after = f"discard_after={quote(discard_after)}" if discard_after else None
     color = args.color or settings.color
     line_number = args.line_number or settings.line_number
     verbose = args.verbose or settings.verbose
-    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _pattern, _after_context, _discard_before, _discard_after] if e)}"
+    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
     verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url)
     resp = requests_get_or_exit(url)
