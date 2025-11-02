@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
 import collections
+import getpass
 import logging.handlers
 import queue
 import re
@@ -15,6 +16,7 @@ from datetime import datetime, tzinfo, timezone, timedelta
 from ipaddress import IPv4Address
 from pathlib import Path
 from string import Template
+from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from brotli_asgi import BrotliMiddleware
@@ -61,10 +63,19 @@ class Settings:
     host: str = '0.0.0.0'
     port: int = 8000
     uuid: str = str(uuid.uuid4())
+    ssl_keyfile: str | None = None
+    ssl_keyfile_password: str | None = None
+    ssl_certificate: str | None = None
     # timezone can be any of zoneinfo.available_timezones()
     # or an offset from UTC, e.g. -03:30, UTC-03:30, +02:00, UTC+02:00
     timezone: str | None = None
+    ASK: ClassVar[str] = 'ASK'  # ask for ssl_keyfile_password
 
+
+## How to generate private key and self-signed certificate (365 days)
+## Add ",IP:$(hostname -i)" to subjectAltName if you want to access your server via IP address; requires `hostname` from GNU inetutils
+# openssl genpkey -algorithm ED25519 -out private.key
+# openssl req -new -x509 -key private.key -out certificate.crt -days 365 -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname),DNS:localhost,IP:127.0.0.1"
 
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
@@ -266,9 +277,9 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
     discard_after_str = discard_after if isinstance(discard_after, str) else None
     log.info(f"({file_path.name!r}, "
-             f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'rgx' if discard_before_rx else 'str'}], "
-             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'rgx' if pattern_rx else 'str'}], {after_context=}, "
-             f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'rgx' if discard_after_rx else 'str'}])")
+             f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
+             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], {after_context=}, "
+             f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}])")
     before_deque = collections.deque(maxlen=before_context) if before_context else None
     matches = []
 
@@ -306,14 +317,22 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     return await asyncio.to_thread(_get_matching_lines)
 
 
-def main(host=None, port=None):
+def main(host=None, port=None, uuid_str=None, ssl_keyfile=None, ssl_keyfile_password=None, ssl_certificate=None):
     import uvicorn
 
     host = host or top_level_settings.host
     port = port or top_level_settings.port
+    if ssl_keyfile := ssl_keyfile or top_level_settings.ssl_keyfile:
+        ssl_keyfile = (p if (p := Path(ssl_keyfile)).is_absolute() else me.parent / p).as_posix()
+    if (ssl_keyfile_password := ssl_keyfile_password or top_level_settings.ssl_keyfile_password) == Settings.ASK:
+        ssl_keyfile_password = getpass.getpass(prompt='SSL keyfile password: ')
+    if ssl_certificate := ssl_certificate or top_level_settings.ssl_certificate:
+        ssl_certificate = (p if (p := Path(ssl_certificate)).is_absolute() else me.parent / p).as_posix()
     hostname = host if IPv4Address(host).is_loopback else socket.gethostname()
-    url = f"http://{hostname}:{port}/{top_level_settings.uuid}"
+    uuid_str = uuid_str or top_level_settings.uuid
+    url = f"http{'s' if ssl_keyfile and ssl_certificate else ''}://{hostname}:{port}/{uuid_str}"
     log.info(f"Starting logrep server: {url}")
+    log.info(f"{ssl_keyfile=}, {ssl_certificate=}")
     log_config = {
         'version': 1,
         'disable_existing_loggers': False,
@@ -324,7 +343,7 @@ def main(host=None, port=None):
             'uvicorn': {'handlers': ['to_queue']},
         },
     }
-    uvicorn.run(app, host=host, port=port, log_config=log_config)
+    uvicorn.run(app, host=host, port=port, ssl_keyfile=ssl_keyfile, ssl_keyfile_password=ssl_keyfile_password, ssl_certfile=ssl_certificate, log_config=log_config)
 
 
 if __name__ == "__main__":

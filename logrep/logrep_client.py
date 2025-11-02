@@ -28,6 +28,7 @@ def is_probably_complex_pattern(pattern: str):
 class Settings:
     section: str | None = None  # table in client toml
     profile: str | None = None  # table in server toml
+    verify: str | bool | None = None
     url: str | None = None
     discard_before: str | None = None
     context: int | None = None
@@ -86,10 +87,12 @@ class MatchType:
 
 
 def grep(argv=None):
+    # print(f"grep {argv}", file=sys.stderr)
     parser = argparse.ArgumentParser()
     parser.add_argument('-S', '--section')
     parser.add_argument('-P', '--profile')
     parser.add_argument('--url')
+    parser.add_argument('--verify')
     parser.add_argument('-D', '--discard-before')
     parser.add_argument('-C', '--context', default=None, type=int)
     parser.add_argument('-B', '--before-context', default=None, type=int)
@@ -128,7 +131,9 @@ def grep(argv=None):
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
     verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url)
-    resp = requests_get_or_exit(url)
+    if isinstance(verify := args.verify or settings.verify, str):
+        verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
+    resp = requests_get_or_exit(url, verify)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers)
     try:
         d = resp.json()
@@ -169,9 +174,10 @@ def grep(argv=None):
 HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
 
 
-def requests_get_or_exit(url: str) -> requests.Response:
+def requests_get_or_exit(url: str, verify: str | bool | None = None) -> requests.Response:
+    # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
-        resp = requests.get(url, headers=HEADERS)
+        resp = requests.get(url, headers=HEADERS, verify=verify)
     except requests.ConnectionError as e:
         et = type(e)
         print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
