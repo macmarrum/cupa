@@ -295,6 +295,7 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                     matches.append((line_num, MatchType.discard_after, line))
                     break
                 if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
+                    matches.clear()
                     discard_before_already_found = True
                     matches.append((line_num, MatchType.discard_before, line))
                 if discard_before_already_found or (not discard_before_rx and not discard_before_str):
