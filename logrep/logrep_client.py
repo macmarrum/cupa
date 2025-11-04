@@ -2,12 +2,14 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
+import importlib
 import re
 import sys
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote
 
 import requests
@@ -43,10 +45,33 @@ class Settings:
     verbose: bool = False
     header_template: str | None = None
     footer_template: str | None = None
+    template_processor: str | None = None
 
 
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
+
+def resolve_callable(callable_string: str) -> Callable:
+    """
+    Resolve a callable from a string like 'module.submodule:function_name'.
+
+    Examples:
+        - 'html:escape'
+        - 'xml.sax.saxutils:escape'
+        - 'mymodule.processors:custom_escape'
+    """
+    if callable_string is None:
+        return str
+    if isinstance(callable_string, Callable):
+        return callable_string
+    if ':' not in callable_string:
+        raise ValueError(f"Callable string must be in format 'module:function', got: {callable_string}")
+    module_name, func_name = callable_string.rsplit(':', 1)
+    module = importlib.import_module(module_name)
+    try:
+        return getattr(module, func_name)
+    except AttributeError:
+        raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
 
 
 def make_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
@@ -88,11 +113,10 @@ class HeaderTemplate:
     def __init__(self, template: str):
         self._template = template
 
-    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
-               tz: timezone = timezone.utc):
+    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ', tz: timezone = timezone.utc, processor: Callable = str):
         dct = {
-            'asctime': datetime.now(tz).strftime(datefmt),
-            'command': ' '.join(e for e in [
+            'asctime': processor(datetime.now(tz).strftime(datefmt)),
+            'command': processor(' '.join(e for e in [
                 self.NAME,
                 '-n' if line_number is not None else '',
                 # f"--color={color}" if color else '',
@@ -103,7 +127,7 @@ class HeaderTemplate:
                 f"-e {pattern!r}",
                 f"--except-pattern={except_pattern!r}" if except_pattern else '',
                 f"{log_path.name!r}",
-            ] if e)
+            ] if e))
         }
         return self._template.format_map(dct)
 
@@ -164,6 +188,7 @@ def grep(argv=None):
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
     verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url, file=sys.stderr)
+    template_processor = resolve_callable(settings.template_processor)
     if isinstance(verify := args.verify or settings.verify, str):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
     resp = requests_get_or_exit(url, verify)
@@ -175,7 +200,7 @@ def grep(argv=None):
         print(sys.exc_info(), file=sys.stderr)
         return
     if settings.header_template:
-        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=Path(d['log_path']))
+        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=Path(d['log_path']), processor=template_processor)
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
     if matches := d.get('matches'):
         max_num = matches[-1][0]
