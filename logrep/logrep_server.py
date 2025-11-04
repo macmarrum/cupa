@@ -183,7 +183,8 @@ async def search_logs_post(sr: SearchRequest):
 class StrftimeTemplate(Template):
     """
     Substitutes the current time for the format string specified within angle brackets,
-    e.g., `Today is <%m/%d %Y>` becomes `Today is 10/16 2025`.
+    with an optional timedelta specification (weeks, days, hours, minutes, seconds),
+    e.g., `Yesterday was <%m/%d %Y|days=-1>` becomes `Yesterday was 10/16 2025`.
     The optional mapping passed to `substitute` can specify a tzinfo instance,
     e.g., `substitute({'timezone': ZoneInfo('Europe/Warsaw')})`
     """
@@ -193,10 +194,32 @@ class StrftimeTemplate(Template):
 
     def substitute(self, mapping=None, **kwargs):
         class StrftimeResolver:
+            SEP = '|'
+
             def __getitem__(self, key):
                 _timezone = mapping.get('timezone') if mapping else None
                 _tzinfo = self.parse_timezone(_timezone)
-                return datetime.now(_tzinfo).strftime(key[:-1])
+                _now = ((mapping.get('now') if mapping else None) or datetime.now()).astimezone(_tzinfo)
+                spec = key[:-1]
+                weeks, days, hours, minutes, seconds = 0, 0, 0, 0, 0
+                if self.SEP in spec:
+                    spec, td_spec = spec.split(self.SEP)
+                    for elem in td_spec.split(','):
+                        match elem.split('='):
+                            case ['weeks', weeks]:
+                                weeks = int(weeks)
+                            case ['days', days]:
+                                days = int(days)
+                            case ['hours', hours]:
+                                hours = int(hours)
+                            case ['minutes', minutes]:
+                                minutes = int(minutes)
+                            case ['seconds', seconds]:
+                                seconds = int(seconds)
+                            case _:
+                                raise ValueError(f"unexpected timedelta spec: {td_spec}")
+                td = timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=seconds)
+                return (_now + td).strftime(spec)
 
             @staticmethod
             def parse_timezone(tz: str | None) -> tzinfo | None:

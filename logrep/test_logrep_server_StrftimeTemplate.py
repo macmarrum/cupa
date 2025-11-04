@@ -44,3 +44,9 @@ def test_logrep_server_StrftimeTemplate__America_Toronto():
     offset = ZoneInfo('America/Toronto').utcoffset(datetime.now())
     actual, expected = _calc_actual_expected('America/Toronto', offset)
     assert actual == expected
+
+def test_logrep_server_StrftimeTemplate__days_minus1__hours_plus2():
+    now = datetime(2025, 11, 4, 21, 30)
+    expected = '2025-11-03 23:30:00'
+    actual = StrftimeTemplate('<%Y-%m-%d %H:%M:%S|days=-1,hours=2>').substitute({'now': now})
+    assert actual == expected
