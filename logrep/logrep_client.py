@@ -88,21 +88,21 @@ class HeaderTemplate:
     def __init__(self, template: str):
         self._template = template
 
-    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: str = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
+    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
                tz: timezone = timezone.utc):
         dct = {
             'asctime': datetime.now(tz).strftime(datefmt),
             'command': ' '.join(e for e in [
                 self.NAME,
                 '-n' if line_number is not None else '',
-                f"--color={color}" if color else '',
+                # f"--color={color}" if color else '',
                 f"--discard-before={discard_before!r}" if discard_before else '',
                 f"--discard-after={discard_after!r}" if discard_after else '',
                 f"-B {before_context}" if before_context else '',
                 f"-A {after_context}" if after_context else '',
                 f"-e {pattern!r}",
                 f"--except-pattern={except_pattern!r}" if except_pattern else '',
-                f"{log_path!r}",
+                f"{log_path.name!r}",
             ] if e)
         }
         return self._template.format_map(dct)
@@ -175,7 +175,7 @@ def grep(argv=None):
         print(sys.exc_info(), file=sys.stderr)
         return
     if settings.header_template:
-        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=d['log_path'])
+        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=Path(d['log_path']))
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
     if matches := d.get('matches'):
         max_num = matches[-1][0]
