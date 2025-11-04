@@ -39,8 +39,10 @@ class Settings:
     after_context: int | None = None
     discard_after: str | None = None
     line_number: bool = False
-    color: str = 'never'
+    color: str | None = None
     verbose: bool = False
+    header_template: str | None = None
+    footer_template: str | None = None
 
 
 TOP_LEVEL = '#top-level'
@@ -80,6 +82,32 @@ def load_config():
         return {TOP_LEVEL: Settings()}
 
 
+class HeaderTemplate:
+    NAME = 'logrep'
+
+    def __init__(self, template: str):
+        self._template = template
+
+    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: str = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
+               tz: timezone = timezone.utc):
+        dct = {
+            'asctime': datetime.now(tz).strftime(datefmt),
+            'command': ' '.join(e for e in [
+                self.NAME,
+                '-n' if line_number is not None else '',
+                f"--color={color}" if color else '',
+                f"--discard-before={discard_before!r}" if discard_before else '',
+                f"--discard-after={discard_after!r}" if discard_after else '',
+                f"-B {before_context}" if before_context else '',
+                f"-A {after_context}" if after_context else '',
+                f"-e {pattern!r}",
+                f"--except-pattern={except_pattern!r}" if except_pattern else '',
+                f"{log_path!r}",
+            ] if e)
+        }
+        return self._template.format_map(dct)
+
+
 class MatchType:
     discard_before = 'D'
     before_context = 'B'
@@ -100,7 +128,7 @@ def grep(argv=None):
     parser.add_argument('-B', '--before-context', default=None, type=int)
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
-    pattern_gr.add_argument('-p', '--pattern')
+    pattern_gr.add_argument('-e', '--pattern')
     parser.add_argument('-E', '--except-pattern')
     parser.add_argument('-A', '--after-context', default=None, type=int)
     parser.add_argument('-d', '--discard-after')
@@ -146,9 +174,9 @@ def grep(argv=None):
         print(resp.text, file=sys.stderr)
         print(sys.exc_info(), file=sys.stderr)
         return
-    msg = f"<details><summary>Click to expand: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} <code>grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} {'--except-pattern ' + repr(except_pattern) if except_pattern else ''} {d['log_path']!r}</code></summary>".replace('  ', ' ')
-    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
-    verbose and print('\n```')
+    if settings.header_template:
+        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=d['log_path'])
+        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
     if matches := d.get('matches'):
         max_num = matches[-1][0]
         size = len(str(max_num))
@@ -177,9 +205,9 @@ def grep(argv=None):
             prev_num = num
     else:
         print(d.get('details'), file=sys.stderr)
-    verbose and print('```')
-    msg = '</details>'
-    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
+    if settings.footer_template:
+        msg = settings.footer_template
+        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
 
 
 HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
