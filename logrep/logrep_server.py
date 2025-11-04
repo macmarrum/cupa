@@ -2,6 +2,7 @@
 # Copyright (C) 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
+import bz2
 import collections
 import getpass
 import logging.handlers
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 from zstd_asgi import ZstdMiddleware
 
 me = Path(__file__)
+UTF8 = 'UTF-8'
 
 formatter = logging.Formatter('{asctime} {levelname} {name} [{funcName}] {message}', style='{')
 console_handler = logging.StreamHandler()
@@ -82,7 +84,7 @@ ProfileToSettings = dict[str, Settings]
 
 
 def make_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
-    toml_str = toml_file.read_text(encoding='UTF-8')
+    toml_str = toml_file.read_text(encoding=UTF8)
     return make_profile_to_settings_from_toml_text(toml_str)
 
 
@@ -257,6 +259,30 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
     return SearchResponse(matches=matches)
 
 
+class FileOpener:
+
+    def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict'):
+        self._file_path = file_path
+        self._encoding = encoding
+        self._errors = errors
+        self._file = None
+
+    def __enter__(self):
+        match self._file_path.suffix:
+            case '.bz2':
+                self._file = bz2.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+            case _:
+                self._file = open(self._file_path, 'r', encoding=self._encoding, errors=self._errors)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._file.close()
+        return False  # don't suppress exceptions cauth within with
+
+    def __iter__(self):
+        yield from self._file
+
+
 class MatchType:
     discard_before = 'D'
     before_context = 'B'
@@ -287,7 +313,7 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         line_num = 0
         lines_after = 0
         last_match_line = -1
-        with open(file_path, 'r') as file:
+        with FileOpener(file_path) as file:
             for line_ in file:
                 line = line_.rstrip('\r\n')
                 line_num += 1
