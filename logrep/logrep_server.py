@@ -27,6 +27,7 @@ from zstd_asgi import ZstdMiddleware
 
 me = Path(__file__)
 UTF8 = 'UTF-8'
+config_path = me.with_suffix('.toml')
 
 formatter = logging.Formatter('{asctime} {levelname} {name} [{funcName}] {message}', style='{')
 console_handler = logging.StreamHandler()
@@ -109,15 +110,34 @@ def make_profile_to_settings_from_toml_text(toml_str) -> ProfileToSettings:
     return profile_to_settings
 
 
-def load_config():
-    config_path = Path(__file__).with_suffix('.toml')
-    if not config_path.exists():
-        raise HTTPException(status_code=500, detail='Configuration file not found')
-    return make_profile_to_settings_from_toml_path(config_path)
+class ConfigLoader:
+    def __init__(self, config_path: Path):
+        self._config_path = config_path
+        self._config_cache = None
+        self._config_mtime = None
+        self._config_size = None
+
+    @property
+    def fresh_profile_to_settings(self):
+        return self._get_fresh_profile_to_settings()
+
+    def _get_fresh_profile_to_settings(self):
+        try:
+            sr = self._config_path.stat()
+        except OSError:
+            raise HTTPException(status_code=500, detail='Error accessing config file')
+        if self._config_cache is None or self._config_mtime != sr.st_mtime or self._config_size != sr.st_size:
+            self._config_cache = make_profile_to_settings_from_toml_path(self._config_path)
+            self._config_mtime = sr.st_mtime
+            self._config_size = sr.st_size
+        return self._config_cache
+
+    async def get_fresh_profile_to_settings(self):
+        return await asyncio.to_thread(self._get_fresh_profile_to_settings)
 
 
-profile_to_settings = load_config()
-top_level_settings = profile_to_settings[TOP_LEVEL]
+config_loader = ConfigLoader(config_path)
+top_level_settings = config_loader.fresh_profile_to_settings[TOP_LEVEL]
 
 
 class SearchRequest(BaseModel):
@@ -214,12 +234,13 @@ def is_probably_complex_pattern(pattern: str):
 async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
     log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {after_context=}, {discard_after=})")
+    profile_to_settings = await config_loader.get_fresh_profile_to_settings()
     if profile:
         settings = profile_to_settings.get(profile)
         if not settings:
             raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
     else:
-        settings = top_level_settings
+        settings = profile_to_settings[TOP_LEVEL]
     log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone})).absolute()
     if not log_path.exists():
         raise HTTPException(status_code=404, detail=f"log_path doesn't exist: {log_path.__str__()!r}")
