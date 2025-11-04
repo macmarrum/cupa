@@ -35,6 +35,7 @@ class Settings:
     context: int | None = None
     before_context: int | None = None
     pattern: str | None = None
+    except_pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
     line_number: bool = False
@@ -100,6 +101,7 @@ def grep(argv=None):
     pattern_gr = parser.add_mutually_exclusive_group()
     pattern_gr.add_argument('pattern_positional', nargs='?')
     pattern_gr.add_argument('-p', '--pattern')
+    parser.add_argument('-E', '--except-pattern')
     parser.add_argument('-A', '--after-context', default=None, type=int)
     parser.add_argument('-d', '--discard-after')
     parser.add_argument('-n', '--line-number', action='store_true')
@@ -122,6 +124,8 @@ def grep(argv=None):
     _before_context = f"before_context={before_context}" if before_context else None
     pattern = args.pattern_positional or args.pattern or settings.pattern
     _pattern = f"pattern={quote(pattern)}" if pattern else None
+    except_pattern = args.except_pattern or settings.except_pattern
+    _except_pattern = f"except_pattern={quote(except_pattern)}" if except_pattern else None
     after_context = args.after_context or settings.after_context or context
     _after_context = f"after_context={after_context}" if after_context else None
     discard_after = args.discard_after or settings.discard_after
@@ -129,7 +133,7 @@ def grep(argv=None):
     color = args.color or settings.color
     line_number = args.line_number or settings.line_number
     verbose = args.verbose or settings.verbose
-    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _after_context, _discard_before, _discard_after] if e)}"
+    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
     verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url, file=sys.stderr)
     if isinstance(verify := args.verify or settings.verify, str):
@@ -142,7 +146,7 @@ def grep(argv=None):
         print(resp.text, file=sys.stderr)
         print(sys.exc_info(), file=sys.stderr)
         return
-    msg = f"<details><summary>Click to expand: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} <code>grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} {d['log_path']!r}</code></summary>".replace('  ', ' ')
+    msg = f"<details><summary>Click to expand: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} <code>grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} {'--except-pattern ' + repr(except_pattern) if except_pattern else ''} {d['log_path']!r}</code></summary>".replace('  ', ' ')
     verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
     verbose and print('\n```')
     if matches := d.get('matches'):

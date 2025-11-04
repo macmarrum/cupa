@@ -61,6 +61,7 @@ class Settings:
     discard_before: str | None = None
     before_context: int = 0
     pattern: str = ''
+    except_pattern: str = ''
     after_context: int = 0
     discard_after: str | None = None
     host: str = '0.0.0.0'
@@ -145,6 +146,7 @@ class SearchRequest(BaseModel):
     discard_before: str | None = None
     before_context: str | None = None
     pattern: str | None = None
+    except_pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
 
@@ -155,9 +157,9 @@ class SearchResponse(BaseModel):
 
 
 @app.get(f"/{top_level_settings.uuid}/search")
-async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
+async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
     try:
-        return await search_logs(profile, discard_before, before_context, pattern, after_context, discard_after)
+        return await search_logs(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
     except HTTPException:
         raise
     except Exception as e:
@@ -169,7 +171,7 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
 @app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(sr: SearchRequest):
     try:
-        return await search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.after_context, sr.discard_after)
+        return await search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after)
     except HTTPException:
         raise
     except Exception as e:
@@ -231,9 +233,9 @@ def is_probably_complex_pattern(pattern: str):
     return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
-async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
+async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
     """Common search logic for both GET and POST endpoints."""
-    log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {after_context=}, {discard_after=})")
+    log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {except_pattern=}, {after_context=}, {discard_after=})")
     profile_to_settings = await config_loader.get_fresh_profile_to_settings()
     if profile:
         settings = profile_to_settings.get(profile)
@@ -266,6 +268,14 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
                 raise HTTPException(status_code=400, detail=f"pattern {e}: {pattern!r}")
         else:
             pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
+    if except_pattern := except_pattern or settings.except_pattern:
+        if is_probably_complex_pattern(except_pattern):
+            try:
+                except_pattern = re.compile(except_pattern)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"except_pattern {e}: {except_pattern!r}")
+        else:
+            except_pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', except_pattern)
     if discard_after := discard_after or settings.discard_after:
         if is_probably_complex_pattern(discard_after):
             try:
@@ -276,7 +286,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_after)
     if not discard_before and not pattern and not discard_after:
         raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
-    matches = await get_matching_lines(log_path, discard_before, before_context, pattern, after_context, discard_after)
+    matches = await get_matching_lines(log_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
     log.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
     return SearchResponse(log_path=log_path.as_posix(), matches=matches)
 
@@ -313,20 +323,23 @@ class MatchType:
     discard_after = 'd'
 
 
-async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
+async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern, after_context: int, discard_after: str | re.Pattern | None):
     """
     Searches through a file and return matching lines with specified number of lines after each match.
     :returns: List of tuples containing (line_number, match_found, line_content)
     """
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
     pattern_str = pattern if isinstance(pattern, str) else None
+    except_pattern_rx = except_pattern if isinstance(except_pattern, re.Pattern) else None
+    except_pattern_str = except_pattern if isinstance(except_pattern, str) else None
     discard_before_rx = discard_before if isinstance(discard_before, re.Pattern) else None
     discard_before_str = discard_before if isinstance(discard_before, str) else None
     discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
     discard_after_str = discard_after if isinstance(discard_after, str) else None
     log.info(f"({file_path.name!r}, "
              f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
-             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], {after_context=}, "
+             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
+             f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}],  {after_context=}, "
              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}])")
     before_deque = collections.deque(maxlen=before_context) if before_context else None
     matches = []
@@ -347,7 +360,8 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                     discard_before_already_found = True
                     matches.append((line_num, MatchType.discard_before, line))
                 if discard_before_already_found or (not discard_before_rx and not discard_before_str):
-                    if (pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line):
+                    if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
+                            and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
                         while before_deque:
                             matches.append(before_deque.popleft())
                         matches.append((line_num, MatchType.pattern, line))
