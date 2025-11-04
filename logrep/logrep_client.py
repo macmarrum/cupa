@@ -136,15 +136,15 @@ def grep(argv=None):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
     resp = requests_get_or_exit(url, verify)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
-    msg = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} `grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} <logfile>`".replace('  ', ' ')
-    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
-    verbose and print('```')
     try:
         d = resp.json()
     except requests.exceptions.JSONDecodeError:
         print(resp.text, file=sys.stderr)
         print(sys.exc_info(), file=sys.stderr)
         return
+    msg = f"<details><summary>Click to expand: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} <code>grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} {d['log_path']!r}</code></summary>".replace('  ', ' ')
+    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
+    verbose and print('\n```')
     if matches := d.get('matches'):
         max_num = matches[-1][0]
         size = len(str(max_num))
@@ -174,6 +174,8 @@ def grep(argv=None):
     else:
         print(d.get('details'), file=sys.stderr)
     verbose and print('```')
+    msg = '</details>'
+    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
 
 
 HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}

@@ -130,6 +130,7 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    log_path: str
     matches: list[tuple[int, str, str]]
 
 
@@ -219,7 +220,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
     else:
         settings = top_level_settings
-    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone}))
+    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone})).absolute()
     if not log_path.exists():
         raise HTTPException(status_code=404, detail=f"log_path doesn't exist: {log_path.__str__()!r}")
     if discard_before := discard_before or settings.discard_before:
@@ -256,7 +257,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
         raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
     matches = await get_matching_lines(log_path, discard_before, before_context, pattern, after_context, discard_after)
     log.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
-    return SearchResponse(matches=matches)
+    return SearchResponse(log_path=log_path.as_posix(), matches=matches)
 
 
 class FileOpener:
