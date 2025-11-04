@@ -6,6 +6,7 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -130,11 +131,14 @@ def grep(argv=None):
     verbose = args.verbose or settings.verbose
     url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _after_context, _discard_before, _discard_after] if e)}"
     use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
-    verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url)
+    verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url, file=sys.stderr)
     if isinstance(verify := args.verify or settings.verify, str):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
     resp = requests_get_or_exit(url, verify)
-    verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers)
+    verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
+    msg = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')} `grep {'-n' if line_number else ''} {'-B ' + str(before_context) if before_context else ''} {'-A ' + str(after_context) if after_context else ''} {pattern!r} <logfile>`".replace('  ', ' ')
+    verbose and print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
+    verbose and print('```')
     try:
         d = resp.json()
     except requests.exceptions.JSONDecodeError:
@@ -169,6 +173,7 @@ def grep(argv=None):
             prev_num = num
     else:
         print(d.get('details'), file=sys.stderr)
+    verbose and print('```')
 
 
 HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
