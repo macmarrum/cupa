@@ -371,7 +371,7 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         line_num = 0
         lines_after = 0
         last_match_line = -1
-        with FileOpener(file_path) as file:
+        with FileOpener(file_path, errors='backslashreplace') as file:
             for line_ in file:
                 line = line_.rstrip('\r\n')
                 line_num += 1
