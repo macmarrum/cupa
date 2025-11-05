@@ -3,7 +3,7 @@ from textwrap import dedent
 
 import pytest
 
-from logrep.logrep_server import get_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, MatchType
+from logrep.logrep_server import gen_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, RecordType
 
 
 @pytest.fixture
@@ -40,156 +40,218 @@ pytestmark = pytest.mark.asyncio  # [pip install pytest-asyncio] mark all tests 
 
 
 # @pytest.mark.asyncio  # an alternative way to mark individual tests as async
-async def test_get_matching_lines__pattern_str_plain(context):
+async def test_gen_matching_lines__pattern_str_plain(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
     pattern = 'four'
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (4, MatchType.pattern, 'line 4 four cuatro'),
-        (14, MatchType.pattern, 'line 14 fourteen catorce'),
+        (4, RecordType.pattern, 'line 4 four cuatro'),
+        (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, pattern, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern_rx_plain(context):
+async def test_gen_matching_lines__pattern_rx_plain(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
     pattern = re.compile('1?4')
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (4, MatchType.pattern, 'line 4 four cuatro'),
-        (14, MatchType.pattern, 'line 14 fourteen catorce'),
+        (4, RecordType.pattern, 'line 4 four cuatro'),
+        (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, pattern, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern_str_escaped(context):
+async def test_gen_matching_lines__pattern_str_escaped(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
     pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', '5\.')
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (5, MatchType.pattern, 'line 5.five cinco'),
-        (15, MatchType.pattern, 'line 15.fifteen quince'),
+        (5, RecordType.pattern, 'line 5.five cinco'),
+        (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, pattern, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern_rx_escaped(context):
+async def test_gen_matching_lines__pattern_rx_escaped(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
     pattern = '1?5\.'
     assert is_probably_complex_pattern(pattern) is True
     pattern = re.compile(pattern)
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (5, MatchType.pattern, 'line 5.five cinco'),
-        (15, MatchType.pattern, 'line 15.fifteen quince'),
+        (5, RecordType.pattern, 'line 5.five cinco'),
+        (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, pattern, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__discard_after_str_plain(context):
+async def test_gen_matching_lines__discard_after_str_plain(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
+    pattern = None
+    except_pattern = None
+    after_context = 0
     discard_after = '2'
     expected = [
-        (2, MatchType.discard_after, 'line 2 two dos'),
+        (2, RecordType.discard_after, 'line 2 two dos'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, None, 0, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__discard_before_str_plain(context):
+async def test_gen_matching_lines__discard_before_str_plain(context):
     file_path = context['file_path']
     discard_before = '19'
+    before_context = 0
+    pattern = None
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (19, MatchType.discard_before, 'line 19 nineteen diecinueve'),
+        (19, RecordType.discard_before, 'line 19 nineteen diecinueve'),
     ]
-    actual = await get_matching_lines(file_path, discard_before, 0, None, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern__discard_after(context):
+async def test_gen_matching_lines__pattern__discard_after(context):
     file_path = context['file_path']
+    discard_before = None
+    before_context = 0
     pattern = '1'
+    except_pattern = None
+    after_context = 0
     discard_after = '11'
     expected = [
-        (1, MatchType.pattern, 'line 1 one uno'),
-        (10, MatchType.pattern, 'line 10 ten diez'),
-        (11, MatchType.discard_after, 'line 11 eleven once'),
+        (1, RecordType.pattern, 'line 1 one uno'),
+        (10, RecordType.pattern, 'line 10 ten diez'),
+        (11, RecordType.discard_after, 'line 11 eleven once'),
     ]
-    actual = await get_matching_lines(file_path, None, 0, pattern, 0, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern__discard_before(context):
+async def test_gen_matching_lines__pattern__discard_before(context):
     file_path = context['file_path']
     discard_before = '11'
+    before_context = 0
     pattern = '2'
+    except_pattern = None
+    after_context = 0
+    discard_after = None
     expected = [
-        (11, MatchType.discard_before, 'line 11 eleven once'),
-        (12, MatchType.pattern, 'line 12 twelve doce'),
-        (20, MatchType.pattern, 'line 20 twenty veinte'),
+        (11, RecordType.discard_before, 'line 11 eleven once'),
+        (12, RecordType.pattern, 'line 12 twelve doce'),
+        (20, RecordType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = await get_matching_lines(file_path, discard_before, 0, pattern, 0, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__before_context__pattern__after_context__discard_after(context):
+async def test_gen_matching_lines__before_context__pattern__after_context__discard_after(context):
     file_path = context['file_path']
+    discard_before = None
     before_context = 1
     pattern = '1'
+    except_pattern = None
     after_context = 1
     discard_after = '11'
     expected = [
-        (1, MatchType.pattern, 'line 1 one uno'),
-        (2, MatchType.after_context, 'line 2 two dos'),
-        (9, MatchType.before_context, 'line 9 nine nueve'),
-        (10, MatchType.pattern, 'line 10 ten diez'),
-        (11, MatchType.discard_after, 'line 11 eleven once'),
+        (1, RecordType.pattern, 'line 1 one uno'),
+        (2, RecordType.after_context, 'line 2 two dos'),
+        (9, RecordType.before_context, 'line 9 nine nueve'),
+        (10, RecordType.pattern, 'line 10 ten diez'),
+        (11, RecordType.discard_after, 'line 11 eleven once'),
     ]
-    actual = await get_matching_lines(file_path, None, before_context, pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__discard_before__before_context__pattern__after_context(context):
+async def test_gen_matching_lines__discard_before__before_context__pattern__after_context(context):
     file_path = context['file_path']
     discard_before = '11'
     before_context = 1
     pattern = '2'
+    except_pattern = None
     after_context = 1
+    discard_after = None
     expected = [
-        (11, MatchType.discard_before, 'line 11 eleven once'),
-        (11, MatchType.before_context, 'line 11 eleven once'),
-        (12, MatchType.pattern, 'line 12 twelve doce'),
-        (13, MatchType.after_context, 'line 13 thirteen trece'),
-        (19, MatchType.before_context, 'line 19 nineteen diecinueve'),
-        (20, MatchType.pattern, 'line 20 twenty veinte'),
+        (11, RecordType.discard_before, 'line 11 eleven once'),
+        (11, RecordType.before_context, 'line 11 eleven once'),
+        (12, RecordType.pattern, 'line 12 twelve doce'),
+        (13, RecordType.after_context, 'line 13 thirteen trece'),
+        (19, RecordType.before_context, 'line 19 nineteen diecinueve'),
+        (20, RecordType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = await get_matching_lines(file_path, discard_before, before_context, pattern, after_context, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__pattern__after_context__discard_before__same_as_pattern(context):
+async def test_gen_matching_lines__pattern__after_context__discard_before__same_as_pattern(context):
     file_path = context['file_path']
     discard_before = '11'
+    before_context = 0
     pattern = '11'
+    except_pattern = None
     after_context = 1
+    discard_after = None
     expected = [
-        (11, MatchType.discard_before, 'line 11 eleven once'),
-        (11, MatchType.pattern, 'line 11 eleven once'),
-        (12, MatchType.after_context, 'line 12 twelve doce'),
+        (11, RecordType.discard_before, 'line 11 eleven once'),
+        (11, RecordType.pattern, 'line 11 eleven once'),
+        (12, RecordType.after_context, 'line 12 twelve doce'),
     ]
-    actual = await get_matching_lines(file_path, discard_before, 0, pattern, after_context, None)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected
 
 
-async def test_get_matching_lines__discard_before__matches_multiple_lines__expected_last_match(context):
+async def test_gen_matching_lines__discard_before__matches_multiple_lines__expected_last_match(context):
     file_path = context['file_path']
     discard_before = 'four'
     before_context = 0
     pattern = None
+    except_pattern = None
     after_context = 0
     discard_after = None
     expected = [
-        (14, MatchType.discard_before, 'line 14 fourteen catorce'),
+        (14, RecordType.discard_before, 'line 14 fourteen catorce'),
     ]
-    actual = await get_matching_lines(file_path, discard_before, before_context, pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    assert actual == expected
+
+
+async def test_gen_matching_lines__not_foundable_discard_before__pattern(context):
+    file_path = context['file_path']
+    discard_before = 'this line does not exist in the file'
+    before_context = 0
+    pattern = 'four'
+    except_pattern = None
+    after_context = 0
+    discard_after = None
+    expected = [
+        (4, RecordType.pattern, 'line 4 four cuatro'),
+        (14, RecordType.pattern, 'line 14 fourteen catorce'),
+    ]
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
     assert actual == expected

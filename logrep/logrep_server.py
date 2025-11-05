@@ -5,10 +5,12 @@ import asyncio
 import bz2
 import collections
 import getpass
+import json
 import logging.handlers
 import queue
 import re
 import socket
+import threading
 import tomllib
 import traceback
 import uuid
@@ -20,13 +22,14 @@ from string import Template
 from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from zstd_asgi import ZstdMiddleware
 
 me = Path(__file__)
 UTF8 = 'UTF-8'
+APPLICATION_X_NDJSON = 'application/x-ndjson'
 config_path = me.with_suffix('.toml')
 
 formatter = logging.Formatter('{asctime} {levelname} {name} [{funcName}] {message}', style='{')
@@ -39,6 +42,7 @@ queue_listener = logging.handlers.QueueListener(log_queue, console_handler, resp
 logging.getLogger().setLevel(logging.INFO)
 log = logging.getLogger(me.stem)
 log.addHandler(queue_handler)
+log.setLevel(logging.DEBUG)
 
 
 def fastapi_lifespan(app: FastAPI):
@@ -49,9 +53,9 @@ def fastapi_lifespan(app: FastAPI):
     queue_listener.stop()
 
 
+MINIMUM_SIZE = 1000
 app = FastAPI(lifespan=fastapi_lifespan)
-app.add_middleware(ZstdMiddleware, minimum_size=500)
-app.add_middleware(BrotliMiddleware, minimum_size=500)
+app.add_middleware(ZstdMiddleware, minimum_size=MINIMUM_SIZE)
 
 
 @dataclass
@@ -159,7 +163,7 @@ class SearchResponse(BaseModel):
 @app.get(f"/{top_level_settings.uuid}/search")
 async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
     try:
-        return await search_logs(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+        return StreamingResponse(search_logs(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
     except Exception as e:
@@ -171,7 +175,7 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
 @app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(sr: SearchRequest):
     try:
-        return await search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after)
+        return StreamingResponse(search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
     except Exception as e:
@@ -256,8 +260,8 @@ def is_probably_complex_pattern(pattern: str):
     return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
-async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None) -> SearchResponse:
-    """Common search logic for both GET and POST endpoints."""
+async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
+    """Common search logic for both GET and POST endpoints; streams matching lines as NDJSON."""
     log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {except_pattern=}, {after_context=}, {discard_after=})")
     profile_to_settings = await config_loader.get_fresh_profile_to_settings()
     if profile:
@@ -267,8 +271,6 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
     else:
         settings = profile_to_settings[TOP_LEVEL]
     log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone})).absolute()
-    if not log_path.exists():
-        raise HTTPException(status_code=404, detail=f"log_path doesn't exist: {log_path.__str__()!r}")
     if discard_before := discard_before or settings.discard_before:
         if is_probably_complex_pattern(discard_before):
             try:
@@ -309,12 +311,23 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_after)
     if not discard_before and not pattern and not discard_after:
         raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
-    matches = await get_matching_lines(log_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
-    log.debug(f"Found {len(matches)} matches in {log_path.__str__()!r}")
-    return SearchResponse(log_path=log_path.as_posix(), matches=matches)
+    list_of_lists = []
+    total_line_size_in_list_of_lists = 0
+    minimum_size_batch_count = 0
+    async for item in gen_matching_lines(log_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after):
+        list_of_lists.append(item)
+        total_line_size_in_list_of_lists += len(item[2])
+        if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
+            yield json.dumps(list_of_lists) + '\n'
+            list_of_lists.clear()
+            total_line_size_in_list_of_lists = 0
+            minimum_size_batch_count += 1
+    if list_of_lists:
+        yield json.dumps(list_of_lists) + '\n'
+    log.debug(f"🗹 minimum_size_batch_count: {minimum_size_batch_count}")
 
 
-class FileOpener:
+class FileReader:
 
     def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict'):
         self._file_path = file_path
@@ -335,10 +348,17 @@ class FileOpener:
         return False  # don't suppress exceptions cauth within with
 
     def __iter__(self):
-        yield from self._file
+        return self
+
+    def __next__(self):
+        return next(self._file)
+
+    def seek(self, offset, whence=0):
+        self._file.seek(offset, whence)
 
 
-class MatchType:
+class RecordType:
+    log_path = 'L'
     discard_before = 'D'
     before_context = 'B'
     pattern = 'p'
@@ -346,11 +366,7 @@ class MatchType:
     discard_after = 'd'
 
 
-async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern, after_context: int, discard_after: str | re.Pattern | None):
-    """
-    Searches through a file and return matching lines with specified number of lines after each match.
-    :returns: List of tuples containing (line_number, match_found, line_content)
-    """
+async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
     pattern_str = pattern if isinstance(pattern, str) else None
     except_pattern_rx = except_pattern if isinstance(except_pattern, re.Pattern) else None
@@ -359,48 +375,71 @@ async def get_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     discard_before_str = discard_before if isinstance(discard_before, str) else None
     discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
     discard_after_str = discard_after if isinstance(discard_after, str) else None
-    log.info(f"({file_path.name!r}, "
-             f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
-             f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
-             f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}],  {after_context=}, "
-             f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}])")
+    log.debug(f"({file_path.name!r}, "
+              f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
+              f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
+              f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}], {after_context=}, "
+              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}])")
     before_deque = collections.deque(maxlen=before_context) if before_context else None
-    matches = []
 
-    def _get_matching_lines(discard_before_already_found=False):
-        line_num = 0
-        lines_after = 0
-        last_match_line = -1
-        with FileOpener(file_path, errors='backslashreplace') as file:
-            for line_ in file:
-                line = line_.rstrip('\r\n')
-                line_num += 1
-                if (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
-                    matches.append((line_num, MatchType.discard_after, line))
-                    break
-                if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
-                    matches.clear()
-                    discard_before_already_found = True
-                    matches.append((line_num, MatchType.discard_before, line))
-                if discard_before_already_found or (not discard_before_rx and not discard_before_str):
-                    if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
-                            and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
-                        while before_deque:
-                            matches.append(before_deque.popleft())
-                        matches.append((line_num, MatchType.pattern, line))
-                        lines_after = 0
-                        last_match_line = line_num
-                    else:
-                        if before_deque is not None:
-                            before_deque.append((line_num, MatchType.before_context, line))
-                        if lines_after < after_context and last_match_line != -1:
-                            matches.append((line_num, MatchType.after_context, line))
-                            lines_after += 1
-        if (discard_before_rx or discard_before_str) and not discard_before_already_found and (pattern_rx or pattern_str):
-            return _get_matching_lines(discard_before_already_found=True)
-        return matches
+    def _gen_matching_lines(que):
+        try:
+            for path in file_path.parent.glob(file_path.name):
+                que.put((0, RecordType.log_path, path.as_posix()))
+                with FileReader(path, errors='backslashreplace') as file:
+                    discard_before_line_num = 0
+                    if discard_before_rx or discard_before_str:
+                        line_num = 0
+                        for line_ in file:
+                            line = line_.rstrip('\r\n')
+                            line_num += 1
+                            if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
+                                discard_before_line_num = line_num
+                        file.seek(0)
+                    line_num = 0
+                    lines_after = 0
+                    match_found_so_can_process_after_context = False
+                    for line_ in file:
+                        line = line_.rstrip('\r\n')
+                        line_num += 1
+                        if discard_before_line_num > 0:
+                            if line_num < discard_before_line_num:
+                                continue
+                            elif line_num == discard_before_line_num:
+                                que.put((line_num, RecordType.discard_before, line))
+                        if (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
+                            que.put((line_num, RecordType.discard_after, line))
+                            break
+                        if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
+                                and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
+                            while before_deque:
+                                que.put(before_deque.popleft())
+                            que.put((line_num, RecordType.pattern, line))
+                            lines_after = 0
+                            match_found_so_can_process_after_context = True
+                        else:
+                            if before_deque is not None:
+                                before_deque.append((line_num, RecordType.before_context, line))
+                            if match_found_so_can_process_after_context:
+                                if lines_after < after_context:
+                                    que.put((line_num, RecordType.after_context, line))
+                                    lines_after += 1
+                                else:
+                                    match_found_so_can_process_after_context = False
+        except:
+            traceback.print_exc()
+            raise
+        finally:
+            que.put(None)
 
-    return await asyncio.to_thread(_get_matching_lines)
+    que = queue.Queue()
+    thread = threading.Thread(target=_gen_matching_lines, args=(que,))
+    thread.start()
+    try:
+        while item := await asyncio.to_thread(que.get):
+            yield item
+    finally:
+        thread.join()
 
 
 def main(host=None, port=None, uuid_str=None, ssl_keyfile=None, ssl_keyfile_password=None, ssl_certificate=None):

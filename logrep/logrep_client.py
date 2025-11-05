@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import importlib
+import json
 import re
 import sys
 import tomllib
@@ -132,7 +133,8 @@ class HeaderTemplate:
         return self._template.format_map(dct)
 
 
-class MatchType:
+class RecordType:
+    log_path = 'L'
     discard_before = 'D'
     before_context = 'B'
     pattern = 'p'
@@ -193,43 +195,55 @@ def grep(argv=None):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
     resp = requests_get_or_exit(url, verify)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
-    try:
-        d = resp.json()
-    except requests.exceptions.JSONDecodeError:
-        print(resp.text, file=sys.stderr)
-        print(sys.exc_info(), file=sys.stderr)
-        return
-    if settings.header_template:
-        msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=Path(d['log_path']), processor=template_processor)
-        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
-    if matches := d.get('matches'):
-        max_num = matches[-1][0]
-        size = len(str(max_num))
-        prev_num = 0
-        pattern_rx = None
-        if use_color and pattern:
-            init()  # colorama
-            if is_probably_complex_pattern(pattern):
-                pattern_rx = re.compile(pattern)
+    prev_num = 0
+    pattern_rx = None
+    if use_color and pattern:
+        init()  # colorama
+        if is_probably_complex_pattern(pattern):
+            pattern_rx = re.compile(pattern)
+        else:
+            pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
+    header_open = False
+    for resp_line in resp.iter_lines():
+        if not resp_line:
+            continue
+        try:
+            list_of_lists = json.loads(resp_line)
+        except json.JSONDecodeError:
+            print(resp_line, file=sys.stderr)
+            print(sys.exc_info(), file=sys.stderr)
+            continue
+        if not isinstance(list_of_lists, list) or len(list_of_lists[0]) != 3:
+            print(f"Invalid data format: {resp_line!r}", file=sys.stderr)
+            continue
+        for line_num, record_type, line in list_of_lists:
+            if line_num == 0 and record_type == RecordType.log_path and settings.header_template:
+                if header_open:
+                    print_footer_if_required(settings, use_color)
+                log_path = Path(line)
+                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path, processor=template_processor)
+                print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
+                header_open = True
+                prev_num = 0
             else:
-                pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
-        for num, match_type, line in matches:
-            sep = ':' if match_type == MatchType.pattern else '-'
-            if prev_num and prev_num + 1 != num:
+                sep = ':' if record_type == RecordType.pattern else '-'
+                if prev_num and prev_num + 1 != line_num:
+                    if use_color:
+                        print(f"{Fore.GREEN}--{Fore.RESET}")
+                    else:
+                        print('--')
                 if use_color:
-                    print(f"{Fore.GREEN}--{Fore.RESET}")
+                    colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if line_number else ''
+                    _line_ = make_colored_line(line, pattern, pattern_rx) if record_type == RecordType.pattern else line
+                    print(f"{colored_num_sep}{_line_}")
                 else:
-                    print('--')
-            if use_color:
-                colored_num_sep = f"{Fore.GREEN}{num:{size}d}{sep}{Style.RESET_ALL}" if line_number else ''
-                _line_ = make_colored_line(line, pattern, pattern_rx) if match_type == MatchType.pattern else line
-                print(f"{colored_num_sep}{_line_}")
-            else:
-                num_sep = f"{num:{size}d}{sep}" if line_number else ''
-                print(f"{num_sep}{line}")
-            prev_num = num
-    else:
-        print(d.get('details'), file=sys.stderr)
+                    num_sep = f"{line_num}{sep}" if line_number else ''
+                    print(f"{num_sep}{line}")
+                prev_num = line_num
+    print_footer_if_required(settings, use_color)
+
+
+def print_footer_if_required(settings: Settings, use_color: bool):
     if settings.footer_template:
         msg = settings.footer_template
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
@@ -241,7 +255,7 @@ HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
 def requests_get_or_exit(url: str, verify: str | bool | None = None) -> requests.Response:
     # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
-        resp = requests.get(url, headers=HEADERS, verify=verify)
+        resp = requests.get(url, headers=HEADERS, verify=verify, stream=True)
     except requests.ConnectionError as e:
         et = type(e)
         print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
