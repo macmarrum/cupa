@@ -249,7 +249,7 @@ def print_footer_if_required(settings: Settings, use_color: bool):
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
 
 
-HEADERS = {'Accept-Encoding': 'zstd, br, gzip'}
+HEADERS = {'Accept-Encoding': 'zstd'}
 
 
 def requests_get_or_exit(url: str, verify: str | bool | None = None) -> requests.Response:
