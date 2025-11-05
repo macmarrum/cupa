@@ -385,6 +385,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     def _gen_matching_lines(que):
         try:
             for path in file_path.parent.glob(file_path.name):
+                log.debug(f"{path.as_posix()!r}")
                 que.put((0, RecordType.log_path, path.as_posix()))
                 with FileReader(path, errors='backslashreplace') as file:
                     discard_before_line_num = 0
