@@ -384,7 +384,8 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
 
     def _gen_matching_lines(que):
         try:
-            for path in file_path.parent.glob(file_path.name):
+            # sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
+            for path in sorted(file_path.parent.glob(file_path.name), key=lambda p: (p.name.lower(), p.name)):
                 log.debug(f"{path.as_posix()!r}")
                 que.put((0, RecordType.log_path, path.as_posix()))
                 with FileReader(path, errors='backslashreplace') as file:
