@@ -52,6 +52,7 @@ class Settings:
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
 
+
 def resolve_callable(callable_string: str) -> Callable:
     """
     Resolve a callable from a string like 'module.submodule:function_name'.
@@ -114,7 +115,8 @@ class HeaderTemplate:
     def __init__(self, template: str):
         self._template = template
 
-    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ', tz: timezone = timezone.utc, processor: Callable = str):
+    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
+               tz: timezone = timezone.utc, processor: Callable = str):
         dct = {
             'asctime': processor(datetime.now(tz).strftime(datefmt)),
             'command': processor(' '.join(e for e in [
@@ -161,6 +163,7 @@ def grep(argv=None):
     parser.add_argument('-n', '--line-number', action='store_true')
     parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('-N', '--no-compression', action='store_true')
     args = parser.parse_args(argv)
     profile_to_settings = load_config()
     try:
@@ -193,7 +196,8 @@ def grep(argv=None):
     template_processor = resolve_callable(settings.template_processor)
     if isinstance(verify := args.verify or settings.verify, str):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
-    resp = requests_get_or_exit(url, verify)
+    headers = {'Accept-Encoding': 'identity' if args.no_compression else 'zstd'}
+    resp = requests_get_or_exit(url, headers, verify)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
     prev_num = 0
     pattern_rx = None
@@ -221,7 +225,8 @@ def grep(argv=None):
                 if header_open:
                     print_footer_if_required(settings, use_color)
                 log_path = Path(line)
-                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path, processor=template_processor)
+                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path,
+                                                                      processor=template_processor)
                 print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
                 header_open = True
                 prev_num = 0
@@ -249,13 +254,10 @@ def print_footer_if_required(settings: Settings, use_color: bool):
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
 
 
-HEADERS = {'Accept-Encoding': 'zstd'}
-
-
-def requests_get_or_exit(url: str, verify: str | bool | None = None) -> requests.Response:
+def requests_get_or_exit(url: str, headers: dict | None = None, verify: str | bool | None = None) -> requests.Response:
     # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
-        resp = requests.get(url, headers=HEADERS, verify=verify, stream=True)
+        resp = requests.get(url, headers=headers, verify=verify, stream=True)
     except requests.ConnectionError as e:
         et = type(e)
         print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
