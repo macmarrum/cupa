@@ -398,6 +398,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                             if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
                                 discard_before_line_num = line_num
                         file.seek(0)
+                    log.debug(f"{discard_before_line_num=}")
                     line_num = 0
                     lines_after = 0
                     match_found_so_can_process_after_context = False
