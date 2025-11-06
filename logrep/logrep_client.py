@@ -136,7 +136,7 @@ class HeaderTemplate:
 
 
 class RecordType:
-    log_path = 'L'
+    log_path = 'l'
     discard_before = 'D'
     before_context = 'B'
     pattern = 'p'
