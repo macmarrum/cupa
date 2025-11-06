@@ -366,7 +366,10 @@ class RecordType:
     after_context = 'A'
     discard_after = 'd'
 
+
 RX_DISCARD_BEFORE_LINE_NUM = re.compile(r'^discard_before_line_num=(\d+)$')
+RX_DISCARD_AFTER_LINE_NUM = re.compile(r'^discard_after_line_num=(\d+)$')
+
 
 async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
@@ -385,25 +388,28 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
     before_deque = collections.deque(maxlen=before_context) if before_context else None
 
     def _gen_matching_lines(que):
+        discard_before_line_num = 0
+        if discard_before_str and (m := RX_DISCARD_BEFORE_LINE_NUM.match(discard_before_str)):
+            with contextlib.suppress(ValueError):
+                discard_before_line_num = int(m.group(1))
+        discard_after_line_num = 0
+        if discard_after_str and (m := RX_DISCARD_AFTER_LINE_NUM.match(discard_after_str)):
+            with contextlib.suppress(ValueError):
+                discard_after_line_num = int(m.group(1))
         try:
             # sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
             for path in sorted(file_path.parent.glob(file_path.name), key=lambda p: (p.name.lower(), p.name)):
                 log.debug(f"{path.as_posix()!r}")
                 que.put((0, RecordType.log_path, path.as_posix()))
                 with FileReader(path, errors='backslashreplace') as file:
-                    discard_before_line_num = 0
-                    if discard_before_rx or discard_before_str:
-                        if m := RX_DISCARD_BEFORE_LINE_NUM.match(discard_before_str):
-                            with contextlib.suppress(ValueError):
-                                discard_before_line_num = int(m.group(1))
-                        else:
-                            line_num = 0
-                            for line_ in file:
-                                line = line_.rstrip('\r\n')
-                                line_num += 1
-                                if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
-                                    discard_before_line_num = line_num
-                            file.seek(0)
+                    if discard_before_line_num == 0 and discard_before_rx or discard_before_str:
+                        line_num = 0
+                        for line_ in file:
+                            line = line_.rstrip('\r\n')
+                            line_num += 1
+                            if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
+                                discard_before_line_num = line_num
+                        file.seek(0)
                     log.debug(f"{discard_before_line_num=}")
                     line_num = 0
                     lines_after = 0
@@ -416,7 +422,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 continue
                             elif line_num == discard_before_line_num:
                                 que.put((line_num, RecordType.discard_before, line))
-                        if (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
+                        if (discard_after_line_num and line_num >= discard_after_line_num) or (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
                             que.put((line_num, RecordType.discard_after, line))
                             break
                         if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
