@@ -49,6 +49,7 @@ async def test_gen_matching_lines__pattern_str_plain(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
@@ -65,6 +66,7 @@ async def test_gen_matching_lines__pattern_rx_plain(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
@@ -81,6 +83,7 @@ async def test_gen_matching_lines__pattern_str_escaped(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (5, RecordType.pattern, 'line 5.five cinco'),
         (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
@@ -99,6 +102,7 @@ async def test_gen_matching_lines__pattern_rx_escaped(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (5, RecordType.pattern, 'line 5.five cinco'),
         (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
@@ -115,6 +119,7 @@ async def test_gen_matching_lines__discard_after_str_plain(context):
     after_context = 0
     discard_after = '2'
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (2, RecordType.discard_after, 'line 2 two dos'),
     ]
     actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
@@ -130,6 +135,7 @@ async def test_gen_matching_lines__discard_before_str_plain(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (19, RecordType.discard_before, 'line 19 nineteen diecinueve'),
     ]
     actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
@@ -145,6 +151,7 @@ async def test_gen_matching_lines__pattern__discard_after(context):
     after_context = 0
     discard_after = '11'
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (1, RecordType.pattern, 'line 1 one uno'),
         (10, RecordType.pattern, 'line 10 ten diez'),
         (11, RecordType.discard_after, 'line 11 eleven once'),
@@ -162,6 +169,7 @@ async def test_gen_matching_lines__pattern__discard_before(context):
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (11, RecordType.discard_before, 'line 11 eleven once'),
         (12, RecordType.pattern, 'line 12 twelve doce'),
         (20, RecordType.pattern, 'line 20 twenty veinte'),
@@ -179,6 +187,7 @@ async def test_gen_matching_lines__before_context__pattern__after_context__disca
     after_context = 1
     discard_after = '11'
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (1, RecordType.pattern, 'line 1 one uno'),
         (2, RecordType.after_context, 'line 2 two dos'),
         (9, RecordType.before_context, 'line 9 nine nueve'),
@@ -198,6 +207,7 @@ async def test_gen_matching_lines__discard_before__before_context__pattern__afte
     after_context = 1
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (11, RecordType.discard_before, 'line 11 eleven once'),
         (11, RecordType.before_context, 'line 11 eleven once'),
         (12, RecordType.pattern, 'line 12 twelve doce'),
@@ -218,6 +228,7 @@ async def test_gen_matching_lines__pattern__after_context__discard_before__same_
     after_context = 1
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (11, RecordType.discard_before, 'line 11 eleven once'),
         (11, RecordType.pattern, 'line 11 eleven once'),
         (12, RecordType.after_context, 'line 12 twelve doce'),
@@ -235,6 +246,7 @@ async def test_gen_matching_lines__discard_before__matches_multiple_lines__expec
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (14, RecordType.discard_before, 'line 14 fourteen catorce'),
     ]
     actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
@@ -250,6 +262,7 @@ async def test_gen_matching_lines__not_foundable_discard_before__pattern(context
     after_context = 0
     discard_after = None
     expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
