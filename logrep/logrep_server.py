@@ -62,7 +62,7 @@ app.add_middleware(ZstdMiddleware, minimum_size=MINIMUM_SIZE)
 @dataclass
 class Settings:
     profile: str
-    log_path: str = '/__not_set__'
+    file_path: str = '/__not_set__'
     discard_before: str | None = None
     before_context: int = 0
     pattern: str = ''
@@ -157,7 +157,7 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    log_path: str
+    file_path: str
     matches: list[tuple[int, str, str]]
 
 
@@ -271,7 +271,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
     else:
         settings = profile_to_settings[TOP_LEVEL]
-    log_path = Path(StrftimeTemplate(settings.log_path).substitute({'timezone': settings.timezone})).absolute()
+    file_path = Path(StrftimeTemplate(settings.file_path).substitute({'timezone': settings.timezone})).absolute()
     if discard_before := discard_before or settings.discard_before:
         if is_probably_complex_pattern(discard_before):
             try:
@@ -315,7 +315,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
     list_of_lists = []
     total_line_size_in_list_of_lists = 0
     minimum_size_batch_count = 0
-    async for item in gen_matching_lines(log_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after):
+    async for item in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after):
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
@@ -359,7 +359,7 @@ class FileReader:
 
 
 class RecordType:
-    log_path = 'l'
+    file_path = 'l'
     discard_before = 'D'
     before_context = 'B'
     pattern = 'p'
@@ -399,8 +399,8 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         try:
             # sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
             for path in sorted(file_path.parent.glob(file_path.name), key=lambda p: (p.name.lower(), p.name)):
-                log.debug(f"{path.as_posix()!r}")
-                que.put((0, RecordType.log_path, path.as_posix()))
+                log.debug(f"file_path={path.as_posix()!r}")
+                que.put((0, RecordType.file_path, path.as_posix()))
                 with FileReader(path, errors='backslashreplace') as file:
                     if discard_before_line_num == 0 and discard_before_rx or discard_before_str:
                         line_num = 0

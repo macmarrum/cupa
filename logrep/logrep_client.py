@@ -115,7 +115,7 @@ class HeaderTemplate:
     def __init__(self, template: str):
         self._template = template
 
-    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, log_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
+    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, file_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
                tz: timezone = timezone.utc, processor: Callable = str):
         dct = {
             'asctime': processor(datetime.now(tz).strftime(datefmt)),
@@ -129,14 +129,14 @@ class HeaderTemplate:
                 f"-A {after_context}" if after_context else '',
                 f"-e {pattern!r}",
                 f"--except-pattern={except_pattern!r}" if except_pattern else '',
-                f"{log_path.name!r}",
+                f"{file_path.name!r}",
             ] if e))
         }
         return self._template.format_map(dct)
 
 
 class RecordType:
-    log_path = 'l'
+    file_path = 'l'
     discard_before = 'D'
     before_context = 'B'
     pattern = 'p'
@@ -221,11 +221,11 @@ def grep(argv=None):
             print(f"Invalid data format: {resp_line!r}", file=sys.stderr)
             continue
         for line_num, record_type, line in list_of_lists:
-            if line_num == 0 and record_type == RecordType.log_path and settings.header_template:
+            if line_num == 0 and record_type == RecordType.file_path and settings.header_template:
                 if header_open:
                     print_footer_if_required(settings, use_color)
-                log_path = Path(line)
-                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path, processor=template_processor)
+                file_path = Path(line)
+                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, file_path=file_path, processor=template_processor)
                 print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
                 header_open = True
                 prev_num = 0
