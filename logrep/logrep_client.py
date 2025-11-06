@@ -10,7 +10,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Generator
 from urllib.parse import quote
 
 import requests
@@ -200,13 +200,13 @@ def grep(argv=None):
     resp = requests_get_or_exit(url, headers, verify)
     verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
     prev_num = 0
-    pattern_rx = None
+    pattern_str = pattern_rx = None
     if use_color and pattern:
         init()  # colorama
         if is_probably_complex_pattern(pattern):
             pattern_rx = re.compile(pattern)
         else:
-            pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
+            pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
     header_open = False
     for resp_line in resp.iter_lines():
         if not resp_line:
@@ -225,8 +225,7 @@ def grep(argv=None):
                 if header_open:
                     print_footer_if_required(settings, use_color)
                 log_path = Path(line)
-                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path,
-                                                                      processor=template_processor)
+                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, log_path=log_path, processor=template_processor)
                 print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
                 header_open = True
                 prev_num = 0
@@ -239,7 +238,7 @@ def grep(argv=None):
                         print('--')
                 if use_color:
                     colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if line_number else ''
-                    _line_ = make_colored_line(line, pattern, pattern_rx) if record_type == RecordType.pattern else line
+                    _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
                     print(f"{colored_num_sep}{_line_}")
                 else:
                     num_sep = f"{line_num}{sep}" if line_number else ''
@@ -269,51 +268,31 @@ def requests_get_or_exit(url: str, headers: dict | None = None, verify: str | bo
     return resp
 
 
-def make_colored_line(line: str, pattern: str | None, pattern_rx: re.Pattern | None) -> str:
-    if not pattern and not pattern_rx:
-        return line
-    if pattern_rx:
-        m = pattern_rx.search(line)
-        if m.groups():
-            colored_line = ''
-            for is_match, text in decompose_into_groups(line, m):
-                colored_line += f"{Style.BRIGHT}{Fore.RED}{text}{Style.RESET_ALL}" if is_match else text
-        else:
-            colored_line = pattern_rx.sub(lambda m: f"{Style.BRIGHT}{Fore.RED}{m[0]}{Style.RESET_ALL}", line)
+def make_colored_line(line: str, pattern_str: str | None, pattern_rx: re.Pattern | None) -> str:
+    if pattern_str:
+        colored_line = line.replace(pattern_str, f"{Style.BRIGHT}{Fore.RED}{pattern_str}{Style.RESET_ALL}")
+    elif pattern_rx:
+        colored_line = ''.join(f"{Style.BRIGHT}{Fore.RED}{text}{Style.RESET_ALL}" if is_match else text for is_match, text in gen_segments_with_is_match(line, pattern_rx))
     else:
-        colored_line = line.replace(pattern, f"{Style.BRIGHT}{Fore.RED}{pattern}{Style.RESET_ALL}")
+        colored_line = line
     return colored_line
 
 
-def decompose_into_groups(line: str, m: re.Match) -> list[tuple[bool, str]]:
-    """Decomposes a line based on a regex match into a list of (is_match, text)"""
-    if not m:
-        return [(False, line)]
-    result_list: list[tuple[bool, str]] = []
-    # 1. Handle the prefix (unmatched text before the full match)
-    prefix_end = m.start(0)
-    if prefix_end > 0:
-        result_list.append((False, line[0:prefix_end]))
-    # 2. Iterate through all captured groups and the text between them
-    current_pos = m.start(0)
-    for g in range(1, len(m.groups()) + 1):
-        group_start = m.start(g)
-        group_end = m.end(g)
-        group_text = m.group(g)
-        # A. Handle the UNMATCHED text between the last position and the current group's start
-        if group_start > current_pos:
-            unmatched_text = line[current_pos:group_start]
-            result_list.append((False, unmatched_text))
-        # B. Handle the CAPTURED GROUP text (is_match = True)
-        if group_text is not None:
-            result_list.append((True, group_text))
-        # Update the current position to the end of the current group
-        current_pos = group_end
-    # 3. Handle the suffix (unmatched text after the full match)
-    suffix_start = m.end(0)
-    if suffix_start < len(line):
-        result_list.append((False, line[suffix_start:len(line)]))
-    return result_list
+def gen_segments_with_is_match(line: str, pattern: re.Pattern) -> Generator[tuple[bool, str], None, None]:
+    """Decomposes a line based on a regex pattern into segments (is_match, text)"""
+    # Find all matches of the pattern in the line
+    current_pos = 0
+    for match in pattern.finditer(line):
+        # Add unmatched text before this match
+        if match.start() > current_pos:
+            yield False, line[current_pos:match.start()]
+        # Add the matched text (find which group actually matched)
+        matched_text = match.group(0)
+        yield True, matched_text
+        current_pos = match.end()
+    # Add remaining unmatched text after the last match or if no match at all
+    if current_pos < len(line):
+        yield False, line[current_pos:]
 
 
 if __name__ == '__main__':
