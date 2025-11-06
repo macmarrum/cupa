@@ -198,6 +198,24 @@ async def test_gen_matching_lines__before_context__pattern__after_context__disca
     assert actual == expected
 
 
+async def test_gen_matching_lines__discard_before__pattern__discard_after(context):
+    file_path = context['file_path']
+    discard_before = 'four'
+    before_context = 0
+    pattern = '17'
+    except_pattern = None
+    after_context = 0
+    discard_after = '19'
+    expected = [
+        (0, RecordType.log_path, file_path.as_posix()),
+        (14, RecordType.discard_before, 'line 14 fourteen catorce'),
+        (17, RecordType.pattern, 'line 17 seventeen diecisiete'),
+        (19, RecordType.discard_after, 'line 19 nineteen diecinueve')
+    ]
+    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    assert actual == expected
+
+
 async def test_gen_matching_lines__discard_before__before_context__pattern__after_context(context):
     file_path = context['file_path']
     discard_before = '11'
