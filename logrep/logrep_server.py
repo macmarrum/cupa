@@ -4,6 +4,7 @@
 import asyncio
 import bz2
 import collections
+import contextlib
 import getpass
 import json
 import logging.handlers
@@ -365,6 +366,7 @@ class RecordType:
     after_context = 'A'
     discard_after = 'd'
 
+RX_DISCARD_BEFORE_LINE_NUM = re.compile(r'^discard_before_line_num=(\d+)$')
 
 async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
@@ -391,13 +393,17 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                 with FileReader(path, errors='backslashreplace') as file:
                     discard_before_line_num = 0
                     if discard_before_rx or discard_before_str:
-                        line_num = 0
-                        for line_ in file:
-                            line = line_.rstrip('\r\n')
-                            line_num += 1
-                            if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
-                                discard_before_line_num = line_num
-                        file.seek(0)
+                        if m := RX_DISCARD_BEFORE_LINE_NUM.match(discard_before_str):
+                            with contextlib.suppress(ValueError):
+                                discard_before_line_num = int(m.group(1))
+                        else:
+                            line_num = 0
+                            for line_ in file:
+                                line = line_.rstrip('\r\n')
+                                line_num += 1
+                                if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
+                                    discard_before_line_num = line_num
+                            file.seek(0)
                     log.debug(f"{discard_before_line_num=}")
                     line_num = 0
                     lines_after = 0
