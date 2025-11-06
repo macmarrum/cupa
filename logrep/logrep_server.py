@@ -422,9 +422,6 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 continue
                             elif line_num == discard_before_line_num:
                                 que.put((line_num, RecordType.discard_before, line))
-                        if (discard_after_line_num and line_num >= discard_after_line_num) or (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
-                            que.put((line_num, RecordType.discard_after, line))
-                            break
                         if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
                             while before_deque:
@@ -441,6 +438,9 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                     lines_after += 1
                                 else:
                                     match_found_so_can_process_after_context = False
+                        if (discard_after_line_num and line_num >= discard_after_line_num) or (discard_after_rx and discard_after_rx.search(line)) or (discard_after_str and discard_after_str in line):
+                            que.put((line_num, RecordType.discard_after, line))
+                            break
         except:
             traceback.print_exc()
             raise
