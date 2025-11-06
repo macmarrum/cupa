@@ -325,7 +325,7 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             minimum_size_batch_count += 1
     if list_of_lists:
         yield json.dumps(list_of_lists) + '\n'
-    log.debug(f"🗹 minimum_size_batch_count: {minimum_size_batch_count}")
+    log.debug(f"[x] minimum_size_batch_count: {minimum_size_batch_count}")
 
 
 class FileReader:
