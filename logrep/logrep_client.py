@@ -7,18 +7,17 @@ import json
 import re
 import sys
 import tomllib
+from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Generator
 from urllib.parse import quote
 
 import requests
 from colorama import init, Fore, Style
 
 if sys.version_info < (3, 14):
-    import zstandard  # used internally by requests (urllib3), for Accept-Encoding: zstd
-    zstandard = zstandard  # to prevent IDE from removing an unused import
+    import zstandard  # noqa - required by requests/urllib3 (used internally), for Accept-Encoding: zstd
 
 me = Path(__file__)
 
@@ -51,6 +50,28 @@ class Settings:
     header_template: str | None = None
     footer_template: str | None = None
     template_processor: str | None = None
+
+
+@dataclass
+class Arguments:
+    profile: str | None
+    verify: str | bool | None
+    url: str
+    discard_before: str | None
+    context: int | None
+    before_context: int | None
+    pattern: str | None
+    except_pattern: str | None
+    after_context: int | None
+    discard_after: str | None
+    line_number: bool
+    color: str | None
+    use_color: bool
+    verbose: bool
+    header_template: str | None
+    footer_template: str | None
+    template_processor: Callable | None
+    no_compression: bool
 
 
 TOP_LEVEL = '#top-level'
@@ -119,21 +140,19 @@ class HeaderTemplate:
     def __init__(self, template: str):
         self._template = template
 
-    def format(self, line_number: bool = None, color: str = None, discard_before: str = None, discard_after: str = None, before_context: int = None, after_context: int = None, pattern: str = None, except_pattern: str = None, file_path: Path = None, datefmt: str = '%Y-%m-%d %H:%M:%SZ',
-               tz: timezone = timezone.utc, processor: Callable = str):
+    def format(self, a: Arguments, file_name: str, datefmt: str = '%Y-%m-%d %H:%M:%SZ', tz: timezone = timezone.utc):
         dct = {
-            'asctime': processor(datetime.now(tz).strftime(datefmt)),
-            'command': processor(' '.join(e for e in [
+            'asctime': a.template_processor(datetime.now(tz).strftime(datefmt)),
+            'command': a.template_processor(' '.join(e for e in [
                 self.NAME,
-                '-n' if line_number is not None else '',
-                # f"--color={color}" if color else '',
-                f"--discard-before={discard_before!r}" if discard_before else '',
-                f"--discard-after={discard_after!r}" if discard_after else '',
-                f"-B {before_context}" if before_context else '',
-                f"-A {after_context}" if after_context else '',
-                f"-e {pattern!r}",
-                f"--except-pattern={except_pattern!r}" if except_pattern else '',
-                f"{file_path.name!r}",
+                '-n' if a.line_number is not None else '',
+                f"--discard-before={a.discard_before!r}" if a.discard_before else '',
+                f"--discard-after={a.discard_after!r}" if a.discard_after else '',
+                f"-B {a.before_context}" if a.before_context else '',
+                f"-A {a.after_context}" if a.after_context else '',
+                f"-e {a.pattern!r}",
+                f"--except-pattern={a.except_pattern!r}" if a.except_pattern else '',
+                f"{file_name!r}",
             ] if e))
         }
         return self._template.format_map(dct)
@@ -148,8 +167,7 @@ class RecordType:
     discard_after = 'd'
 
 
-def grep(argv=None):
-    # print(f"grep {argv}", file=sys.stderr)
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('-S', '--section')
     parser.add_argument('-P', '--profile')
@@ -176,91 +194,125 @@ def grep(argv=None):
         print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
         sys.exit(1)
     profile = args.profile or settings.profile
-    _profile = f"profile={quote(profile)}" if profile else None
-    base_url = (args.url or settings.url).rstrip('/')
-    discard_before = args.discard_before or settings.discard_before
-    _discard_before = f"discard_before={quote(discard_before)}" if discard_before else None
-    context = args.context or settings.context
-    before_context = args.before_context or settings.before_context or context
-    _before_context = f"before_context={before_context}" if before_context else None
-    pattern = args.pattern_positional or args.pattern or settings.pattern
-    _pattern = f"pattern={quote(pattern)}" if pattern else None
-    except_pattern = args.except_pattern or settings.except_pattern
-    _except_pattern = f"except_pattern={quote(except_pattern)}" if except_pattern else None
-    after_context = args.after_context or settings.after_context or context
-    _after_context = f"after_context={after_context}" if after_context else None
-    discard_after = args.discard_after or settings.discard_after
-    _discard_after = f"discard_after={quote(discard_after)}" if discard_after else None
-    color = args.color or settings.color
-    line_number = args.line_number or settings.line_number
-    verbose = args.verbose or settings.verbose
-    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
-    use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
-    verbose and print(f"{Fore.CYAN}{url}{Style.RESET_ALL}" if use_color else url, file=sys.stderr)
-    template_processor = resolve_callable(settings.template_processor)
     if isinstance(verify := args.verify or settings.verify, str):
         verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
-    headers = {'Accept-Encoding': 'identity' if args.no_compression else 'zstd'}
-    resp = requests_get_or_exit(url, headers, verify)
-    verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if use_color else resp.headers, file=sys.stderr)
+    base_url = (args.url or settings.url).rstrip('/')
+    discard_before = args.discard_before or settings.discard_before
+    context = args.context or settings.context
+    before_context = args.before_context or settings.before_context or context
+    pattern = args.pattern_positional or args.pattern or settings.pattern
+    except_pattern = args.except_pattern or settings.except_pattern
+    after_context = args.after_context or settings.after_context or context
+    discard_after = args.discard_after or settings.discard_after
+    line_number = args.line_number or settings.line_number
+    color = args.color or settings.color
+    use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
+    verbose = args.verbose or settings.verbose
+    header_template = settings.header_template
+    footer_template = settings.footer_template
+    template_processor = resolve_callable(settings.template_processor)
+    no_compression = args.no_compression
+    _profile = f"profile={quote(profile)}" if profile else None
+    _discard_before = f"discard_before={quote(discard_before)}" if discard_before else None
+    _before_context = f"before_context={before_context}" if before_context else None
+    _pattern = f"pattern={quote(pattern)}" if pattern else None
+    _except_pattern = f"except_pattern={quote(except_pattern)}" if except_pattern else None
+    _after_context = f"after_context={after_context}" if after_context else None
+    _discard_after = f"discard_after={quote(discard_after)}" if discard_after else None
+    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
+    return Arguments(
+        profile=profile,
+        verify=verify,
+        url=url,
+        discard_before=discard_before,
+        context=context,
+        before_context=before_context,
+        pattern=pattern,
+        except_pattern=except_pattern,
+        after_context=after_context,
+        discard_after=discard_after,
+        line_number=line_number,
+        color=color,
+        use_color=use_color,
+        verbose=verbose,
+        header_template=header_template,
+        footer_template=footer_template,
+        template_processor=template_processor,
+        no_compression=no_compression,
+    )
+
+
+def grep(argv=None, a: Arguments = None):
+    a = a or parse_arguments(argv)
     prev_num = 0
     pattern_str = pattern_rx = None
-    if use_color and pattern:
+    if a.use_color and a.pattern:
         init()  # colorama
-        if is_probably_complex_pattern(pattern):
-            pattern_rx = re.compile(pattern)
+        if is_probably_complex_pattern(a.pattern):
+            pattern_rx = re.compile(a.pattern)
         else:
-            pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
+            pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', a.pattern)
     header_open = False
-    for resp_line in resp.iter_lines():
-        if not resp_line:
+    for line_num, record_type, line in iter_records(argv, a):
+        if line_num == 0 and record_type == RecordType.file_path and a.header_template:
+            if header_open:
+                print_footer_if_required(a)
+            file_name = Path(line).name
+            msg = HeaderTemplate(a.header_template).format(a, file_name=file_name)
+            print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
+            header_open = True
+            prev_num = 0
+        else:
+            sep = ':' if record_type == RecordType.pattern else '-'
+            if prev_num and prev_num + 1 != line_num:
+                if a.use_color:
+                    print(f"{Fore.GREEN}--{Fore.RESET}")
+                else:
+                    print('--')
+            if a.use_color:
+                colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if a.line_number else ''
+                _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
+                print(f"{colored_num_sep}{_line_}")
+            else:
+                num_sep = f"{line_num}{sep}" if a.line_number else ''
+                print(f"{num_sep}{line}")
+            prev_num = line_num
+    print_footer_if_required(a)
+
+
+def grep_records(argv=None, a: Arguments = None):
+    """Prints each record (line_num, record_type, line)"""
+    a = a or parse_arguments(argv)
+    for record in iter_records(argv, a):
+        print(record)
+
+
+def iter_records(argv=None, a: Arguments = None):
+    """Iterates over each record (line_num, record_type, line)"""
+    a = a or parse_arguments(argv)
+    yield from iter_records_parsed_from_ndjsons(fetch_and_iter_ndjsons(argv, a))
+
+
+def iter_records_parsed_from_ndjsons(ndjsons_iterator: Iterator[str]):
+    for list_as_ndjson in ndjsons_iterator:
+        if not list_as_ndjson:
             continue
         try:
-            list_of_lists = json.loads(resp_line)
+            yield from json.loads(list_as_ndjson)
         except json.JSONDecodeError:
-            print(resp_line, file=sys.stderr)
+            print(list_as_ndjson, file=sys.stderr)
             print(sys.exc_info(), file=sys.stderr)
             continue
-        if not isinstance(list_of_lists, list) or len(list_of_lists[0]) != 3:
-            print(f"Invalid data format: {resp_line!r}", file=sys.stderr)
-            continue
-        for line_num, record_type, line in list_of_lists:
-            if line_num == 0 and record_type == RecordType.file_path and settings.header_template:
-                if header_open:
-                    print_footer_if_required(settings, use_color)
-                file_path = Path(line)
-                msg = HeaderTemplate(settings.header_template).format(line_number=line_number, color=color, discard_before=discard_before, discard_after=discard_after, before_context=before_context, after_context=after_context, pattern=pattern, except_pattern=except_pattern, file_path=file_path, processor=template_processor)
-                print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
-                header_open = True
-                prev_num = 0
-            else:
-                sep = ':' if record_type == RecordType.pattern else '-'
-                if prev_num and prev_num + 1 != line_num:
-                    if use_color:
-                        print(f"{Fore.GREEN}--{Fore.RESET}")
-                    else:
-                        print('--')
-                if use_color:
-                    colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if line_number else ''
-                    _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
-                    print(f"{colored_num_sep}{_line_}")
-                else:
-                    num_sep = f"{line_num}{sep}" if line_number else ''
-                    print(f"{num_sep}{line}")
-                prev_num = line_num
-    print_footer_if_required(settings, use_color)
 
 
-def print_footer_if_required(settings: Settings, use_color: bool):
-    if settings.footer_template:
-        msg = settings.footer_template
-        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if use_color else f"{msg}")
-
-
-def requests_get_or_exit(url: str, headers: dict | None = None, verify: str | bool | None = None) -> requests.Response:
+def fetch_and_iter_ndjsons(argv=None, a: Arguments=None):
+    """Iterates over NDJSONs fetched from logrep_server"""
+    a = a or parse_arguments(argv)
+    a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
+    headers = {'Accept-Encoding': 'identity' if a.no_compression else 'zstd'}
     # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
-        resp = requests.get(url, headers=headers, verify=verify, stream=True)
+        resp = requests.get(a.url, headers=headers, verify=a.verify, stream=True)
     except requests.ConnectionError as e:
         et = type(e)
         print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
@@ -269,7 +321,14 @@ def requests_get_or_exit(url: str, headers: dict | None = None, verify: str | bo
         print(resp.status_code, resp.reason, file=sys.stderr)
         print(resp.text, file=sys.stderr)
         sys.exit(1)
-    return resp
+    a.verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if a.use_color else resp.headers, file=sys.stderr)
+    yield from resp.iter_lines()
+
+
+def print_footer_if_required(a: Arguments):
+    if a.footer_template:
+        msg = a.footer_template
+        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
 
 
 def make_colored_line(line: str, pattern_str: str | None, pattern_rx: re.Pattern | None) -> str:
