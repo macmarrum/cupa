@@ -16,6 +16,10 @@ from urllib.parse import quote
 import requests
 from colorama import init, Fore, Style
 
+if sys.version_info < (3, 14):
+    import zstandard  # used internally by requests (urllib3), for Accept-Encoding: zstd
+    zstandard = zstandard  # to prevent IDE from removing an unused import
+
 me = Path(__file__)
 
 # Note: special chars could be either escaped or bracketed [] to make them literal
