@@ -6,11 +6,16 @@ import bz2
 import collections
 import contextlib
 import getpass
+import gzip
+import io
 import json
 import logging.handlers
+import lzma
+import os
 import queue
 import re
 import socket
+import sys
 import threading
 import tomllib
 import traceback
@@ -20,13 +25,22 @@ from datetime import datetime, tzinfo, timezone, timedelta
 from ipaddress import IPv4Address
 from pathlib import Path
 from string import Template
-from typing import ClassVar
+from typing import ClassVar, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from zstd_asgi import ZstdMiddleware
+
+if sys.version_info >= (3, 14):
+    from compression import zstd
+    import tarfile
+    import zipfile
+else:
+    from backports import zstd
+    from backports.zstd import tarfile
+    from backports.zstd import zipfile
 
 me = Path(__file__)
 UTF8 = 'UTF-8'
@@ -325,37 +339,114 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
             minimum_size_batch_count += 1
     if list_of_lists:
         yield json.dumps(list_of_lists) + '\n'
-    log.debug(f"[x] minimum_size_batch_count: {minimum_size_batch_count}")
+    log.debug(f"[/] minimum_size_batch_count: {minimum_size_batch_count}")
 
 
 class FileReader:
 
-    def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict'):
+    def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict', on_file_open: Callable[['FileReader'], None] | None = None):
         self._file_path = file_path
         self._encoding = encoding
         self._errors = errors
+        self._on_file_open = on_file_open
         self._file = None
+        self._file_iterator = None
+        self._outer_file = None
 
     def __enter__(self):
-        match self._file_path.suffix:
-            case '.bz2':
-                self._file = bz2.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
-            case _:
-                self._file = open(self._file_path, 'r', encoding=self._encoding, errors=self._errors)
+        name = self._file_path.name
+        if name.endswith('.tar.gz') or name.endswith('.tgz'):
+            self._open_tar('r:gz')
+        elif name.endswith('.tar.bz2') or name.endswith('.tbz'):
+            self._open_tar('r:bz2')
+        elif name.endswith('.tar.xz') or name.endswith('.txz'):
+            self._open_tar('r:xz')
+        elif name.endswith('.tar.zst') or name.endswith('.tzst'):
+            self._open_tar('r:zstd')
+        elif name.endswith('.tar'):
+            self._open_tar('r:')
+        elif name.endswith('.zip'):
+            self._open_zip()
+        elif name.endswith('.gz'):
+            self._open_compressed(gzip)
+        elif name.endswith('.bz2'):
+            self._open_compressed(bz2)
+        elif name.endswith('.xz'):
+            self._open_compressed(lzma)
+        elif name.endswith('.zst'):
+            self._open_compressed(zstd)
+        else:
+            self._open_file()
         return self
 
+    def _open_tar(self, mode: str):
+        self._outer_file = tarfile.open(self._file_path, mode, encoding=self._encoding, errors=self._errors)
+
+        def _iter_file():
+            for tarinfo in self._outer_file.getmembers():
+                if not tarinfo.isfile():
+                    continue
+                if self._file:
+                    self._file.close()
+                if binary_file := self._outer_file.extractfile(tarinfo):
+                    self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
+                    self._fire_on_file_open()
+                    yield from self._file
+
+        self._file_iterator = _iter_file()
+
+    def _open_zip(self):
+        self._outer_file = zipfile.ZipFile(self._file_path, 'r')
+
+        def _iter_file():
+            for zipinfo in self._outer_file.infolist():
+                if zipinfo.is_dir():
+                    continue
+                if self._file:
+                    self._file.close()
+                if binary_file := self._outer_file.open(zipinfo):
+                    self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
+                    self._fire_on_file_open()
+                    yield from self._file
+
+        self._file_iterator = _iter_file()
+
+    def _open_compressed(self, compressor):
+        self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._fire_on_file_open()
+
+    def _open_file(self):
+        self._file_iterator = self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._fire_on_file_open()
+
+    def _fire_on_file_open(self):
+        if self._on_file_open:
+            self._on_file_open(self)
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._file.close()
+        with contextlib.suppress(Exception):
+            if self._file:
+                self._file.close()
+        with contextlib.suppress(Exception):
+            if self._outer_file:
+                self._outer_file.close()
         return False  # don't suppress exceptions cauth within with
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        return next(self._file)
+        return next(self._file_iterator)
 
-    def seek(self, offset, whence=0):
+    def seek(self, offset, whence=os.SEEK_SET, /):
         self._file.seek(offset, whence)
+
+    @property
+    def name(self):
+        if self._file is self._file_iterator:
+            return f"{self._file_path}"
+        else:
+            return f"{self._file_path}#{self._file.name}"
 
 
 class RecordType:
@@ -396,12 +487,17 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         if discard_after_str and (m := RX_DISCARD_AFTER_LINE_NUM.match(discard_after_str)):
             with contextlib.suppress(ValueError):
                 discard_after_line_num = int(m.group(1))
+
+        def on_file_open(file_reader):
+            """Called for each file; in an archive, for each member"""
+            name = file_reader.name
+            log.debug(f"{name=}")
+            que.put((0, RecordType.file_path, name))
+
         try:
-            # sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
+            ## sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
             for path in sorted(file_path.parent.glob(file_path.name), key=lambda p: (p.name.lower(), p.name)):
-                log.debug(f"file_path={path.as_posix()!r}")
-                que.put((0, RecordType.file_path, path.as_posix()))
-                with FileReader(path, errors='backslashreplace') as file:
+                with FileReader(path, errors='backslashreplace', on_file_open=on_file_open) as file:
                     if discard_before_line_num == 0 and discard_before_rx or discard_before_str:
                         line_num = 0
                         for line_ in file:
