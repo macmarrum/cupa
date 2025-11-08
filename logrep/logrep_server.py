@@ -433,10 +433,7 @@ class FileReader:
         return False  # don't suppress exceptions cauth within with
 
     def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self._file_iterator)
+        return self._file_iterator
 
     def seek(self, offset, whence=os.SEEK_SET, /):
         self._file.seek(offset, whence)
