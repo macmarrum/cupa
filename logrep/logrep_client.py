@@ -277,15 +277,14 @@ def grep(argv=None, a: Arguments = None):
             pattern_rx = re.compile(a.pattern)
         else:
             pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', a.pattern)
-    header_open = False
+    template_open = False
     for line_num, record_type, line in iter_records(argv, a):
         if line_num == 0 and record_type == RecordType.file_path and a.header_template:
-            if header_open:
-                print_footer_if_required(a)
+            print_footer_if_required(template_open, a)
             file_name = Path(line).name
             msg = HeaderTemplate(a.header_template).format(a, file_name=file_name)
             print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
-            header_open = True
+            template_open = True
             prev_num = 0
         else:
             sep = ':' if record_type == RecordType.pattern else '-'
@@ -302,7 +301,7 @@ def grep(argv=None, a: Arguments = None):
                 num_sep = f"{line_num}{sep}" if a.line_number else ''
                 print(f"{num_sep}{line}")
             prev_num = line_num
-    print_footer_if_required(a)
+    print_footer_if_required(template_open, a)
 
 
 def grep_records(argv=None, a: Arguments = None):
@@ -354,8 +353,8 @@ def fetch_resp(argv=None, a: Arguments = None):
     return resp
 
 
-def print_footer_if_required(a: Arguments):
-    if a.footer_template:
+def print_footer_if_required(template_open: bool, a: Arguments):
+    if template_open and a.footer_template:
         msg = a.footer_template
         print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
 
