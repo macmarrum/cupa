@@ -376,6 +376,7 @@ class FileReader:
         self._file = None
         self._file_iterator = None
         self._outer_file = None
+        self.skip_rest = False
 
     def __enter__(self):
         name = self._file_path.name
@@ -415,9 +416,16 @@ class FileReader:
                 if binary_file := self._outer_file.extractfile(tarinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
                     self._fire_on_file_open()
-                    yield from self._file
+                    yield from self._iter_lines_until_skip_rest()
 
         self._file_iterator = _iter_file()
+
+    def _iter_lines_until_skip_rest(self):
+        for line in self._file:
+            if self.skip_rest:
+                self.skip_rest = False
+                break
+            yield line
 
     def _open_zip(self):
         self._outer_file = zipfile.ZipFile(self._file_path, 'r')
@@ -431,17 +439,19 @@ class FileReader:
                 if binary_file := self._outer_file.open(zipinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
                     self._fire_on_file_open()
-                    yield from self._file
+                    yield from self._iter_lines_until_skip_rest()
 
         self._file_iterator = _iter_file()
 
     def _open_compressed(self, compressor):
-        self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._fire_on_file_open()
+        self._file_iterator = self._iter_lines_until_skip_rest()
 
     def _open_file(self):
-        self._file_iterator = self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._fire_on_file_open()
+        self._file_iterator = self._iter_lines_until_skip_rest()
 
     def _fire_on_file_open(self):
         if self._on_file_open:
@@ -501,7 +511,7 @@ class FileNamePrependQueue(queue.Queue):
             super().put(item, block, timeout)
 
 
-async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None, files_with_matches = False):
+async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None, files_with_matches=False):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
     pattern_str = pattern if isinstance(pattern, str) else None
     except_pattern_rx = except_pattern if isinstance(except_pattern, re.Pattern) else None
@@ -561,12 +571,13 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
                             if files_with_matches:
                                 que.put(FileNamePrependQueue.FLUSH_FILE_NAME)
-                                break
-                            while before_deque:
-                                que.put(before_deque.popleft())
-                            que.put((line_num, RecordType.pattern, line))
-                            lines_after = 0
-                            match_found_so_can_process_after_context = True
+                                file.skip_rest = True
+                            else:
+                                while before_deque:
+                                    que.put(before_deque.popleft())
+                                que.put((line_num, RecordType.pattern, line))
+                                lines_after = 0
+                                match_found_so_can_process_after_context = True
                         else:
                             if before_deque is not None:
                                 before_deque.append((line_num, RecordType.before_context, line))
