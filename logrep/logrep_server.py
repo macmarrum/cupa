@@ -95,6 +95,69 @@ class Settings:
     ASK: ClassVar[str] = 'ASK'  # ask for ssl_keyfile_password
 
 
+@dataclass
+class SearchArgs:
+    settings: Settings
+    discard_before: str | re.Pattern | None
+    before_context: int
+    pattern: str | re.Pattern | None
+    except_pattern: str | re.Pattern | None
+    after_context: int
+    discard_after: str | re.Pattern | None
+
+    @classmethod
+    async def merge_with_settings_and_validate(cls, profile: str | None, discard_before: str | None, before_context: int | None, pattern: str | None, except_pattern: str | None, after_context: int | None, discard_after: str | None):
+        """For creation of SearchArgs with validation before streaming starts"""
+        profile_to_settings = await config_loader.get_fresh_profile_to_settings()
+        if profile:
+            settings = profile_to_settings.get(profile)
+            if not settings:
+                raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
+        else:
+            settings = profile_to_settings[TOP_LEVEL]
+        _before_context = before_context if before_context is not None else settings.before_context
+        if _before_context < 0:
+            raise HTTPException(status_code=400, detail='before_context must be non-negative')
+        _after_context = after_context if after_context is not None else settings.after_context
+        if _after_context < 0:
+            raise HTTPException(status_code=400, detail='after_context must be non-negative')
+        _discard_before = discard_before or settings.discard_before
+        if _discard_before and is_probably_complex_pattern(_discard_before):
+            try:
+                _discard_before = re.compile(_discard_before)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"discard_before pattern {e}: {_discard_before!r}")
+        _pattern = pattern or settings.pattern
+        if _pattern and is_probably_complex_pattern(_pattern):
+            try:
+                _pattern = re.compile(_pattern)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"pattern {e}: {_pattern!r}")
+        _except_pattern = except_pattern or settings.except_pattern
+        if _except_pattern and is_probably_complex_pattern(_except_pattern):
+            try:
+                _except_pattern = re.compile(_except_pattern)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"except_pattern {e}: {_except_pattern!r}")
+        _discard_after = discard_after or settings.discard_after
+        if _discard_after and is_probably_complex_pattern(_discard_after):
+            try:
+                _discard_after = re.compile(_discard_after)
+            except re.error as e:
+                raise HTTPException(status_code=400, detail=f"discard_after pattern {e}: {_discard_after!r}")
+        if not _discard_before and not _pattern and not _discard_after:
+            raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
+        return cls(
+            settings=settings,
+            discard_before=_discard_before,
+            before_context=_before_context,
+            pattern=_pattern,
+            except_pattern=_except_pattern,
+            after_context=_after_context,
+            discard_after=_discard_after,
+        )
+
+
 ## How to generate private key and self-signed certificate (365 days)
 ## Add ",IP:$(hostname -i)" to subjectAltName if you want to access your server via IP address; requires `hostname` from GNU inetutils
 # openssl genpkey -algorithm ED25519 -out private.key
@@ -178,7 +241,8 @@ class SearchResponse(BaseModel):
 @app.get(f"/{top_level_settings.uuid}/search")
 async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
     try:
-        return StreamingResponse(search_logs(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after), media_type=APPLICATION_X_NDJSON)
+        search_args = await SearchArgs.merge_with_settings_and_validate(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+        return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
     except Exception as e:
@@ -190,7 +254,8 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
 @app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(sr: SearchRequest):
     try:
-        return StreamingResponse(search_logs(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after), media_type=APPLICATION_X_NDJSON)
+        search_args = await SearchArgs.merge_with_settings_and_validate(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after)
+        return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
     except Exception as e:
@@ -278,61 +343,14 @@ def is_probably_complex_pattern(pattern: str):
 JSON_SEPARATORS = (',', ':')
 
 
-async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
-    """Common search logic for both GET and POST endpoints; streams matching lines as NDJSON."""
-    log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {except_pattern=}, {after_context=}, {discard_after=})")
-    profile_to_settings = await config_loader.get_fresh_profile_to_settings()
-    if profile:
-        settings = profile_to_settings.get(profile)
-        if not settings:
-            raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
-    else:
-        settings = profile_to_settings[TOP_LEVEL]
-    file_path = Path(StrftimeTemplate(settings.file_path).substitute({'timezone': settings.timezone})).absolute()
-    if discard_before := discard_before or settings.discard_before:
-        if is_probably_complex_pattern(discard_before):
-            try:
-                discard_before = re.compile(discard_before)
-            except re.error as e:
-                raise HTTPException(status_code=400, detail=f"pattern {e}: {discard_before!r}")
-        else:
-            discard_before = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_before)
-    before_context = before_context if before_context is not None else settings.before_context
-    if before_context < 0:
-        raise HTTPException(status_code=400, detail='before_context must be non-negative')
-    after_context = after_context if after_context is not None else settings.after_context
-    if after_context < 0:
-        raise HTTPException(status_code=400, detail='after_context must be non-negative')
-    if pattern := pattern or settings.pattern:
-        if is_probably_complex_pattern(pattern):
-            try:
-                pattern = re.compile(pattern)
-            except re.error as e:
-                raise HTTPException(status_code=400, detail=f"pattern {e}: {pattern!r}")
-        else:
-            pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', pattern)
-    if except_pattern := except_pattern or settings.except_pattern:
-        if is_probably_complex_pattern(except_pattern):
-            try:
-                except_pattern = re.compile(except_pattern)
-            except re.error as e:
-                raise HTTPException(status_code=400, detail=f"except_pattern {e}: {except_pattern!r}")
-        else:
-            except_pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', except_pattern)
-    if discard_after := discard_after or settings.discard_after:
-        if is_probably_complex_pattern(discard_after):
-            try:
-                discard_after = re.compile(discard_after)
-            except re.error as e:
-                raise HTTPException(status_code=400, detail=f"pattern {e}: {discard_after!r}")
-        else:
-            discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', discard_after)
-    if not discard_before and not pattern and not discard_after:
-        raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
+async def search_logs(a: SearchArgs):
+    """Common search logic for both GET and POST endpoints; streams matching lines as NDJSON"""
+    log.info(f"{a=}")
+    file_path = Path(StrftimeTemplate(a.settings.file_path).substitute({'timezone': a.settings.timezone})).absolute()
     list_of_lists = []
     total_line_size_in_list_of_lists = 0
     minimum_size_batch_count = 0
-    async for item in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after):
+    async for item in gen_matching_lines(file_path, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after):
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
