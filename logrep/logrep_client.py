@@ -108,6 +108,52 @@ class Arguments:
         except AttributeError:
             raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
 
+    @classmethod
+    def from_argv(cls, argv=None):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('-S', '--section')
+        parser.add_argument('-P', '--profile')
+        parser.add_argument('--url')
+        parser.add_argument('--verify')
+        parser.add_argument('-D', '--discard-before')
+        parser.add_argument('-C', '--context', default=None, type=int)
+        parser.add_argument('-B', '--before-context', default=None, type=int)
+        pattern_gr = parser.add_mutually_exclusive_group()
+        pattern_gr.add_argument('pattern_positional', nargs='?')
+        pattern_gr.add_argument('-e', '--pattern')
+        parser.add_argument('-E', '--except-pattern')
+        parser.add_argument('-A', '--after-context', default=None, type=int)
+        parser.add_argument('-d', '--discard-after')
+        parser.add_argument('-n', '--line-number', action='store_true')
+        parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
+        parser.add_argument('--verbose', action='store_true')
+        parser.add_argument('-N', '--no-compression', action='store_true')
+        args = parser.parse_args(argv)
+        profile_to_settings = load_config()
+        try:
+            settings = profile_to_settings[args.section or TOP_LEVEL]
+        except KeyError:
+            print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
+            sys.exit(1)
+        return cls(
+            profile=args.profile or settings.profile,
+            verify=args.verify or settings.verify,
+            url=args.url or settings.url,
+            discard_before=args.discard_before or settings.discard_before,
+            before_context=args.before_context or settings.before_context or args.context or settings.context,
+            pattern=args.pattern_positional or args.pattern or settings.pattern,
+            except_pattern=args.except_pattern or settings.except_pattern,
+            after_context=args.after_context or settings.after_context or args.context or settings.context,
+            discard_after=args.discard_after or settings.discard_after,
+            line_number=args.line_number or settings.line_number,
+            color=args.color or settings.color,
+            verbose=args.verbose or settings.verbose,
+            header_template=settings.header_template,
+            footer_template=settings.footer_template,
+            template_processor=settings.template_processor,
+            no_compression=args.no_compression,
+        )
+
 
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
@@ -179,54 +225,8 @@ class RecordType:
     discard_after = 'd'
 
 
-def parse_arguments(argv=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-S', '--section')
-    parser.add_argument('-P', '--profile')
-    parser.add_argument('--url')
-    parser.add_argument('--verify')
-    parser.add_argument('-D', '--discard-before')
-    parser.add_argument('-C', '--context', default=None, type=int)
-    parser.add_argument('-B', '--before-context', default=None, type=int)
-    pattern_gr = parser.add_mutually_exclusive_group()
-    pattern_gr.add_argument('pattern_positional', nargs='?')
-    pattern_gr.add_argument('-e', '--pattern')
-    parser.add_argument('-E', '--except-pattern')
-    parser.add_argument('-A', '--after-context', default=None, type=int)
-    parser.add_argument('-d', '--discard-after')
-    parser.add_argument('-n', '--line-number', action='store_true')
-    parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
-    parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('-N', '--no-compression', action='store_true')
-    args = parser.parse_args(argv)
-    profile_to_settings = load_config()
-    try:
-        settings = profile_to_settings[args.section or TOP_LEVEL]
-    except KeyError:
-        print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
-        sys.exit(1)
-    return Arguments(
-        profile=args.profile or settings.profile,
-        verify=args.verify or settings.verify,
-        url=args.url or settings.url,
-        discard_before=args.discard_before or settings.discard_before,
-        before_context=args.before_context or settings.before_context or args.context or settings.context,
-        pattern=args.pattern_positional or args.pattern or settings.pattern,
-        except_pattern=args.except_pattern or settings.except_pattern,
-        after_context=args.after_context or settings.after_context or args.context or settings.context,
-        discard_after=args.discard_after or settings.discard_after,
-        line_number=args.line_number or settings.line_number,
-        color=args.color or settings.color,
-        verbose=args.verbose or settings.verbose,
-        header_template=settings.header_template,
-        footer_template=settings.footer_template,
-        template_processor=settings.template_processor,
-        no_compression=args.no_compression,
-    )
-
-
 def grep(argv=None, a: Arguments = None):
-    a = a or parse_arguments(argv)
+    a = a or Arguments.from_argv(argv)
     prev_num = 0
     pattern_str = pattern_rx = None
     if a.use_color and a.pattern:
@@ -265,14 +265,14 @@ def grep(argv=None, a: Arguments = None):
 
 def grep_records(argv=None, a: Arguments = None):
     """Prints each record (line_num, record_type, line)"""
-    a = a or parse_arguments(argv)
+    a = a or Arguments.from_argv(argv)
     for record in iter_records(argv, a):
         print(record)
 
 
 def iter_records(argv=None, a: Arguments = None):
     """Iterates over each record (line_num, record_type, line)"""
-    a = a or parse_arguments(argv)
+    a = a or Arguments.from_argv(argv)
     yield from iter_records_parsed_from_ndjsons(fetch_and_iter_ndjsons(argv, a))
 
 
@@ -290,7 +290,7 @@ def iter_records_parsed_from_ndjsons(ndjsons_iterator: Iterator[str]):
 
 def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
     """Iterates over NDJSONs fetched from logrep_server"""
-    a = a or parse_arguments(argv)
+    a = a or Arguments.from_argv(argv)
     a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
     headers = {'Accept-Encoding': 'identity' if a.no_compression else 'zstd'}
     # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
