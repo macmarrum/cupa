@@ -312,6 +312,10 @@ def iter_records_parsed_from_ndjsons(ndjsons_iterator: Iterator[str]):
 
 def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
     """Iterates over NDJSONs fetched from logrep_server"""
+    yield from fetch_resp(argv, a).iter_lines()
+
+
+def fetch_resp(argv=None, a: Arguments = None):
     a = a or Arguments.from_argv(argv)
     a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
     headers = {'Accept-Encoding': 'identity' if a.no_compression else 'zstd'}
@@ -327,7 +331,7 @@ def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
         print(resp.text, file=sys.stderr)
         sys.exit(1)
     a.verbose and print(f"{Fore.YELLOW}{resp.headers}{Style.RESET_ALL}" if a.use_color else resp.headers, file=sys.stderr)
-    yield from resp.iter_lines()
+    return resp
 
 
 def print_footer_if_required(a: Arguments):
