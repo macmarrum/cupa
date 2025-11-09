@@ -1,4 +1,5 @@
 import re
+import tarfile
 from textwrap import dedent
 
 import pytest
@@ -9,7 +10,7 @@ from logrep.logrep_server import gen_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECI
 @pytest.fixture
 def context(tmp_path):
     file_path = tmp_path / 'file_path.log'
-    file_path.write_text(dedent('''\
+    text = dedent('''\
     line 1 one uno
     line 2 two dos
     line 3 three tres
@@ -30,10 +31,25 @@ def context(tmp_path):
     line 18 eighteen dieciocho
     line 19 nineteen diecinueve
     line 20 twenty veinte
-    '''))
-    d = dict(file_path=file_path)
+    ''')
+    file_path.write_text(text)
+    file_path2 = tmp_path / 'file_path2.log'
+    with file_path2.open('wt') as f:
+        for line in text.splitlines(keepends=True):
+            f.write('file_path2 ')
+            f.write(line)
+    file_path_tar_gz = tmp_path / 'file_path.tar.gz'
+    with tarfile.open(file_path_tar_gz, 'w:gz') as tf:
+        tf.add(file_path, arcname=file_path.name)
+        tf.add(file_path2, arcname=file_path2.name)
+    d = dict(
+        file_path=file_path,
+        file_path2=file_path2,
+        file_path_tar_gz=file_path_tar_gz
+    )
     yield d
-    file_path.unlink()
+    for path in d.values():
+        path.unlink()
 
 
 pytestmark = pytest.mark.asyncio  # [pip install pytest-asyncio] mark all tests in the module as async
@@ -287,4 +303,40 @@ async def test_gen_matching_lines__not_foundable_discard_before__pattern(context
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
     actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    assert actual == expected
+
+
+async def test_gen_matching_lines__tar_gz__files_with_matches__multiple(context):
+    file_path = context['file_path']
+    file_path2 = context['file_path2']
+    file_path_tar_gz = context['file_path_tar_gz']
+    discard_before = None
+    before_context = 0
+    pattern = 'four'
+    except_pattern = None
+    after_context = 0
+    discard_after = None
+    files_with_matches = True
+    expected = [
+        (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path.name}"),
+        (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
+    ]
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)]
+    assert actual == expected
+
+
+async def test_gen_matching_lines__tar_gz__files_with_matches__single(context):
+    file_path2 = context['file_path2']
+    file_path_tar_gz = context['file_path_tar_gz']
+    discard_before = None
+    before_context = 0
+    pattern = 'file_path2'
+    except_pattern = None
+    after_context = 0
+    discard_after = None
+    files_with_matches = True
+    expected = [
+        (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
+    ]
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)]
     assert actual == expected
