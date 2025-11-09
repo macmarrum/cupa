@@ -7,10 +7,11 @@ import json
 import re
 import sys
 import tomllib
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import quote
 
 import requests
@@ -70,6 +71,7 @@ class Arguments:
     footer_template: str | None
     template_processor: str | None | Callable
     no_compression: bool
+    RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
     def __post_init__(self):
         if isinstance(self.verify, str):
@@ -109,7 +111,7 @@ class Arguments:
             raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
 
     @classmethod
-    def from_argv(cls, argv=None):
+    def from_argv(cls, argv: Sequence[str] | None = None):
         parser = argparse.ArgumentParser()
         parser.add_argument('-S', '--section')
         parser.add_argument('-P', '--profile')
@@ -153,6 +155,26 @@ class Arguments:
             template_processor=settings.template_processor,
             no_compression=args.no_compression,
         )
+
+    @classmethod
+    def from_str(cls, args: str):
+        return cls.from_argv(cls.split_args(args))
+
+    @classmethod
+    def split_args(cls, args: str):
+        """
+        De-dents and splits ``args`` into lines, omitting empty and commented ones;
+        then splits each line, unless ``[-]-arg=`` (to allow spaces in values)
+        """
+        argv = []
+        for _line in args.splitlines():
+            line = _line.lstrip()
+            if line and not line.startswith('#'):
+                if cls.RX_ARG_EQ.match(line):
+                    argv.append(line)
+                else:
+                    argv.extend(line.split())
+        return argv
 
 
 TOP_LEVEL = '#top-level'
