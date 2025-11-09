@@ -46,6 +46,8 @@ class Settings:
     except_pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
+    files_with_matches: bool | None = None
+    no_compression: bool | None = None
     line_number: bool = False
     color: str | None = None
     verbose: bool = False
@@ -65,13 +67,14 @@ class Arguments:
     except_pattern: str | None
     after_context: int | None
     discard_after: str | None
+    files_with_matches: bool
+    no_compression: bool
     line_number: bool
     color: str | None
     verbose: bool
     header_template: str | None
     footer_template: str | None
     template_processor: str | None | Callable
-    no_compression: bool
     output: str | None
     RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
@@ -84,7 +87,8 @@ class Arguments:
         _except_pattern = f"except_pattern={quote(self.except_pattern)}" if self.except_pattern else None
         _after_context = f"after_context={self.after_context}" if self.after_context else None
         _discard_after = f"discard_after={quote(self.discard_after)}" if self.discard_after else None
-        self.url = f"{self.url.rstrip('/')}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
+        _files_with_matches = 'files_with_matches=true' if self.files_with_matches else None
+        self.url = f"{self.url.rstrip('/')}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after, _files_with_matches] if e)}"
         self.use_color = self.color == 'always' or (self.color == 'auto' and sys.stdout.isatty())
         self.template_processor = self.resolve_callable(self.template_processor)
 
@@ -135,10 +139,11 @@ class Arguments:
         parser.add_argument('-E', '--except-pattern')
         parser.add_argument('-A', '--after-context', default=None, type=int)
         parser.add_argument('-d', '--discard-after')
+        parser.add_argument('-l', '--files-with-matches', action='store_true', default=None)
+        parser.add_argument('-N', '--no-compression', action='store_true', default=None)
         parser.add_argument('-n', '--line-number', action='store_true')
         parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
         parser.add_argument('--verbose', action='store_true')
-        parser.add_argument('-N', '--no-compression', action='store_true')
         output_gr = parser.add_mutually_exclusive_group(required=False)
         output_gr.add_argument('-j', '--json', action='store_const', dest='output', const='json')
         output_gr.add_argument('-J', '--ndjson', action='store_const', dest='output', const='ndjson')
@@ -159,13 +164,14 @@ class Arguments:
             except_pattern=args.except_pattern or settings.except_pattern,
             after_context=args.after_context or settings.after_context or args.context or settings.context,
             discard_after=args.discard_after or settings.discard_after,
+            files_with_matches=args.files_with_matches if args.files_with_matches is not None else settings.files_with_matches,
+            no_compression=args.no_compression if args.no_compression is not None else settings.no_compression,
             line_number=args.line_number or settings.line_number,
             color=args.color or settings.color,
             verbose=args.verbose or settings.verbose,
             header_template=settings.header_template,
             footer_template=settings.footer_template,
             template_processor=settings.template_processor,
-            no_compression=args.no_compression,
             output=args.output,
         )
 
@@ -245,6 +251,7 @@ class HeaderTemplate:
                 f"-A {a.after_context}" if a.after_context else '',
                 f"-e {a.pattern!r}",
                 f"--except-pattern={a.except_pattern!r}" if a.except_pattern else '',
+                '-l' if a.files_with_matches else '',
                 f"{file_name!r}",
             ] if e))
         }

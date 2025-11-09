@@ -104,9 +104,10 @@ class SearchArgs:
     except_pattern: str | re.Pattern | None
     after_context: int
     discard_after: str | re.Pattern | None
+    files_with_matches: bool = False
 
     @classmethod
-    async def merge_with_settings_and_validate(cls, profile: str | None, discard_before: str | None, before_context: int | None, pattern: str | None, except_pattern: str | None, after_context: int | None, discard_after: str | None):
+    async def merge_with_settings_and_validate(cls, profile: str | None, discard_before: str | None, before_context: int | None, pattern: str | None, except_pattern: str | None, after_context: int | None, discard_after: str | None, files_with_matches: bool):
         """For creation of SearchArgs with validation before streaming starts"""
         profile_to_settings = await config_loader.get_fresh_profile_to_settings()
         if profile:
@@ -155,6 +156,7 @@ class SearchArgs:
             except_pattern=_except_pattern,
             after_context=_after_context,
             discard_after=_discard_after,
+            files_with_matches=files_with_matches,
         )
 
 
@@ -231,6 +233,7 @@ class SearchRequest(BaseModel):
     except_pattern: str | None = None
     after_context: int | None = None
     discard_after: str | None = None
+    files_with_matches: bool | None = None
 
 
 class SearchResponse(BaseModel):
@@ -239,9 +242,9 @@ class SearchResponse(BaseModel):
 
 
 @app.get(f"/{top_level_settings.uuid}/search")
-async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
+async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None, files_with_matches: bool | None = None):
     try:
-        search_args = await SearchArgs.merge_with_settings_and_validate(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+        search_args = await SearchArgs.merge_with_settings_and_validate(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
         return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
@@ -254,7 +257,7 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
 @app.post(f"/{top_level_settings.uuid}/search")
 async def search_logs_post(sr: SearchRequest):
     try:
-        search_args = await SearchArgs.merge_with_settings_and_validate(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after)
+        search_args = await SearchArgs.merge_with_settings_and_validate(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after, sr.files_with_matches)
         return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
@@ -350,7 +353,7 @@ async def search_logs(a: SearchArgs):
     list_of_lists = []
     total_line_size_in_list_of_lists = 0
     minimum_size_batch_count = 0
-    async for item in gen_matching_lines(file_path, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after):
+    async for item in gen_matching_lines(file_path, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after, a.files_with_matches):
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
@@ -482,7 +485,9 @@ RX_DISCARD_AFTER_LINE_NUM = re.compile(r'^discard_after_line_num=(\d+)$')
 
 class FileNamePrependQueue(queue.Queue):
     """Ensures ``file_name`` is put before other items, but only if they are put,
-    to avoid reporting ``file_name`` for empty searches"""
+    to avoid reporting ``file_name`` for empty searches,
+    or if ``FLUSH_FILE_NAME`` - for ``files_with_matches``"""
+    FLUSH_FILE_NAME = object()
 
     def __init__(self, maxsize: int = 0):
         super().__init__(maxsize)
@@ -492,10 +497,11 @@ class FileNamePrependQueue(queue.Queue):
         if self.file_name and item is not None:
             super().put((0, RecordType.file_path, self.file_name), block, timeout)
             self.file_name = None
-        super().put(item, block, timeout)
+        if item is not self.FLUSH_FILE_NAME:
+            super().put(item, block, timeout)
 
 
-async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
+async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None, files_with_matches = False):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
     pattern_str = pattern if isinstance(pattern, str) else None
     except_pattern_rx = except_pattern if isinstance(except_pattern, re.Pattern) else None
@@ -553,6 +559,9 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 que.put((line_num, RecordType.discard_before, line))
                         if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
+                            if files_with_matches:
+                                que.put(FileNamePrependQueue.FLUSH_FILE_NAME)
+                                break
                             while before_deque:
                                 que.put(before_deque.popleft())
                             que.put((line_num, RecordType.pattern, line))
