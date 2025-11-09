@@ -72,6 +72,7 @@ class Arguments:
     footer_template: str | None
     template_processor: str | None | Callable
     no_compression: bool
+    output: str | None
     RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
     def __post_init__(self):
@@ -138,6 +139,9 @@ class Arguments:
         parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
         parser.add_argument('--verbose', action='store_true')
         parser.add_argument('-N', '--no-compression', action='store_true')
+        output_gr = parser.add_mutually_exclusive_group(required=False)
+        output_gr.add_argument('-j', '--json', action='store_const', dest='output', const='json')
+        output_gr.add_argument('-J', '--ndjson', action='store_const', dest='output', const='ndjson')
         args = parser.parse_args(argv)
         profile_to_settings = load_config()
         try:
@@ -162,6 +166,7 @@ class Arguments:
             footer_template=settings.footer_template,
             template_processor=settings.template_processor,
             no_compression=args.no_compression,
+            output=args.output,
         )
 
     @classmethod
@@ -375,5 +380,17 @@ def gen_segments_with_is_match(line: str, pattern: re.Pattern) -> Generator[tupl
         yield False, line[current_pos:]
 
 
+def main(argv=None):
+    a = Arguments.from_argv(argv)
+    match a.output:
+        case 'ndjson':
+            for ndjson in fetch_and_iter_ndjsons(a=a):
+                print(ndjson)
+        case 'json':
+            grep_records(a=a)
+        case _:
+            grep(a=a)
+
+
 if __name__ == '__main__':
-    grep()
+    main()
