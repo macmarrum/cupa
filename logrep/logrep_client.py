@@ -15,6 +15,7 @@ from typing import ClassVar
 from urllib.parse import quote
 
 import requests
+import urllib3
 from colorama import init, Fore, Style
 
 if sys.version_info < (3, 14):
@@ -74,8 +75,7 @@ class Arguments:
     RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
     def __post_init__(self):
-        if isinstance(self.verify, str):
-            self.verify = (p if (p := Path(self.verify)).is_absolute() else me.parent / p).as_posix()
+        self._post_init_verify()
         _profile = f"profile={quote(self.profile)}" if self.profile else None
         _discard_before = f"discard_before={quote(self.discard_before)}" if self.discard_before else None
         _before_context = f"before_context={self.before_context}" if self.before_context else None
@@ -86,6 +86,14 @@ class Arguments:
         self.url = f"{self.url.rstrip('/')}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
         self.use_color = self.color == 'always' or (self.color == 'auto' and sys.stdout.isatty())
         self.template_processor = self.resolve_callable(self.template_processor)
+
+    def _post_init_verify(self):
+        if isinstance(self.verify, str):
+            if self.verify in ('disable', 'disable_warnings'):
+                self.verify = False
+                urllib3.disable_warnings()
+            else:
+                self.verify = (p if (p := Path(self.verify)).is_absolute() else me.parent / p).as_posix()
 
     @staticmethod
     def resolve_callable(callable_string: str) -> Callable:
