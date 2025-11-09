@@ -47,7 +47,7 @@ class Settings:
     after_context: int | None = None
     discard_after: str | None = None
     files_with_matches: bool | None = None
-    no_compression: bool | None = None
+    identity: bool | None = None
     line_number: bool = False
     color: str | None = None
     verbose: bool = False
@@ -68,7 +68,7 @@ class Arguments:
     after_context: int | None
     discard_after: str | None
     files_with_matches: bool
-    no_compression: bool
+    identity: bool
     line_number: bool
     color: str | None
     verbose: bool
@@ -140,7 +140,7 @@ class Arguments:
         parser.add_argument('-A', '--after-context', default=None, type=int)
         parser.add_argument('-d', '--discard-after')
         parser.add_argument('-l', '--files-with-matches', action='store_true', default=None)
-        parser.add_argument('-N', '--no-compression', action='store_true', default=None)
+        parser.add_argument('-N', '--identity', action='store_true', default=None, help='Accept-Encoding / Content-Encoding')
         parser.add_argument('-n', '--line-number', action='store_true')
         parser.add_argument('--color', choices=['auto', 'always', 'never'], nargs='?')
         parser.add_argument('--verbose', action='store_true')
@@ -165,7 +165,7 @@ class Arguments:
             after_context=args.after_context or settings.after_context or args.context or settings.context,
             discard_after=args.discard_after or settings.discard_after,
             files_with_matches=args.files_with_matches if args.files_with_matches is not None else settings.files_with_matches,
-            no_compression=args.no_compression if args.no_compression is not None else settings.no_compression,
+            identity=args.identity if args.identity is not None else settings.identity,
             line_number=args.line_number or settings.line_number,
             color=args.color or settings.color,
             verbose=args.verbose or settings.verbose,
@@ -337,7 +337,7 @@ def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
 def fetch_resp(argv=None, a: Arguments = None):
     a = a or Arguments.from_argv(argv)
     a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
-    headers = {'Accept-Encoding': 'identity' if a.no_compression else 'zstd'}
+    headers = {'Accept-Encoding': 'identity' if a.identity else 'zstd'}
     # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
         resp = requests.get(a.url, headers=headers, verify=a.verify, stream=True)
