@@ -58,7 +58,6 @@ class Arguments:
     verify: str | bool | None
     url: str
     discard_before: str | None
-    context: int | None
     before_context: int | None
     pattern: str | None
     except_pattern: str | None
@@ -66,39 +65,52 @@ class Arguments:
     discard_after: str | None
     line_number: bool
     color: str | None
-    use_color: bool
     verbose: bool
     header_template: str | None
     footer_template: str | None
-    template_processor: Callable | None
+    template_processor: str | None | Callable
     no_compression: bool
+
+    def __post_init__(self):
+        if isinstance(self.verify, str):
+            self.verify = (p if (p := Path(self.verify)).is_absolute() else me.parent / p).as_posix()
+        _profile = f"profile={quote(self.profile)}" if self.profile else None
+        _discard_before = f"discard_before={quote(self.discard_before)}" if self.discard_before else None
+        _before_context = f"before_context={self.before_context}" if self.before_context else None
+        _pattern = f"pattern={quote(self.pattern)}" if self.pattern else None
+        _except_pattern = f"except_pattern={quote(self.except_pattern)}" if self.except_pattern else None
+        _after_context = f"after_context={self.after_context}" if self.after_context else None
+        _discard_after = f"discard_after={quote(self.discard_after)}" if self.discard_after else None
+        self.url = f"{self.url.rstrip('/')}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
+        self.use_color = self.color == 'always' or (self.color == 'auto' and sys.stdout.isatty())
+        self.template_processor = self.resolve_callable(self.template_processor)
+
+    @staticmethod
+    def resolve_callable(callable_string: str) -> Callable:
+        """
+        Resolve a callable from a string like 'module.submodule:function_name'.
+
+        Examples:
+            - 'html:escape'
+            - 'xml.sax.saxutils:escape'
+            - 'mymodule.processors:custom_escape'
+        """
+        if callable_string is None:
+            return str
+        if isinstance(callable_string, Callable):
+            return callable_string
+        if ':' not in callable_string:
+            raise ValueError(f"Callable string must be in format 'module:function', got: {callable_string}")
+        module_name, func_name = callable_string.rsplit(':', 1)
+        module = importlib.import_module(module_name)
+        try:
+            return getattr(module, func_name)
+        except AttributeError:
+            raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
 
 
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
-
-
-def resolve_callable(callable_string: str) -> Callable:
-    """
-    Resolve a callable from a string like 'module.submodule:function_name'.
-
-    Examples:
-        - 'html:escape'
-        - 'xml.sax.saxutils:escape'
-        - 'mymodule.processors:custom_escape'
-    """
-    if callable_string is None:
-        return str
-    if isinstance(callable_string, Callable):
-        return callable_string
-    if ':' not in callable_string:
-        raise ValueError(f"Callable string must be in format 'module:function', got: {callable_string}")
-    module_name, func_name = callable_string.rsplit(':', 1)
-    module = importlib.import_module(module_name)
-    try:
-        return getattr(module, func_name)
-    except AttributeError:
-        raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
 
 
 def make_profile_to_settings_from_toml_path(toml_file: Path) -> ProfileToSettings:
@@ -193,52 +205,23 @@ def parse_arguments(argv=None):
     except KeyError:
         print(f"section {args.section!r} not found in config file - available sections: {[k for k in profile_to_settings if k != TOP_LEVEL]}")
         sys.exit(1)
-    profile = args.profile or settings.profile
-    if isinstance(verify := args.verify or settings.verify, str):
-        verify = (p if (p := Path(verify)).is_absolute() else me.parent / p).as_posix()
-    base_url = (args.url or settings.url).rstrip('/')
-    discard_before = args.discard_before or settings.discard_before
-    context = args.context or settings.context
-    before_context = args.before_context or settings.before_context or context
-    pattern = args.pattern_positional or args.pattern or settings.pattern
-    except_pattern = args.except_pattern or settings.except_pattern
-    after_context = args.after_context or settings.after_context or context
-    discard_after = args.discard_after or settings.discard_after
-    line_number = args.line_number or settings.line_number
-    color = args.color or settings.color
-    use_color = color == 'always' or (color == 'auto' and sys.stdout.isatty())
-    verbose = args.verbose or settings.verbose
-    header_template = settings.header_template
-    footer_template = settings.footer_template
-    template_processor = resolve_callable(settings.template_processor)
-    no_compression = args.no_compression
-    _profile = f"profile={quote(profile)}" if profile else None
-    _discard_before = f"discard_before={quote(discard_before)}" if discard_before else None
-    _before_context = f"before_context={before_context}" if before_context else None
-    _pattern = f"pattern={quote(pattern)}" if pattern else None
-    _except_pattern = f"except_pattern={quote(except_pattern)}" if except_pattern else None
-    _after_context = f"after_context={after_context}" if after_context else None
-    _discard_after = f"discard_after={quote(discard_after)}" if discard_after else None
-    url = f"{base_url}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after] if e)}"
     return Arguments(
-        profile=profile,
-        verify=verify,
-        url=url,
-        discard_before=discard_before,
-        context=context,
-        before_context=before_context,
-        pattern=pattern,
-        except_pattern=except_pattern,
-        after_context=after_context,
-        discard_after=discard_after,
-        line_number=line_number,
-        color=color,
-        use_color=use_color,
-        verbose=verbose,
-        header_template=header_template,
-        footer_template=footer_template,
-        template_processor=template_processor,
-        no_compression=no_compression,
+        profile=args.profile or settings.profile,
+        verify=args.verify or settings.verify,
+        url=args.url or settings.url,
+        discard_before=args.discard_before or settings.discard_before,
+        before_context=args.before_context or settings.before_context or args.context or settings.context,
+        pattern=args.pattern_positional or args.pattern or settings.pattern,
+        except_pattern=args.except_pattern or settings.except_pattern,
+        after_context=args.after_context or settings.after_context or args.context or settings.context,
+        discard_after=args.discard_after or settings.discard_after,
+        line_number=args.line_number or settings.line_number,
+        color=args.color or settings.color,
+        verbose=args.verbose or settings.verbose,
+        header_template=settings.header_template,
+        footer_template=settings.footer_template,
+        template_processor=settings.template_processor,
+        no_compression=args.no_compression,
     )
 
 
@@ -305,7 +288,7 @@ def iter_records_parsed_from_ndjsons(ndjsons_iterator: Iterator[str]):
             continue
 
 
-def fetch_and_iter_ndjsons(argv=None, a: Arguments=None):
+def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
     """Iterates over NDJSONs fetched from logrep_server"""
     a = a or parse_arguments(argv)
     a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
