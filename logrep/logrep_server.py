@@ -275,6 +275,9 @@ def is_probably_complex_pattern(pattern: str):
     return RX_PROBABLY_COMPLEX_PATTERN.search(pattern) is not None
 
 
+JSON_SEPARATORS = (',', ':')
+
+
 async def search_logs(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None):
     """Common search logic for both GET and POST endpoints; streams matching lines as NDJSON."""
     log.info(f"({profile=}, {discard_before=}, {before_context=}, {pattern=}, {except_pattern=}, {after_context=}, {discard_after=})")
@@ -333,12 +336,12 @@ async def search_logs(profile: str | None = None, discard_before: str | None = N
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
-            yield json.dumps(list_of_lists) + '\n'
+            yield json.dumps(list_of_lists, separators=JSON_SEPARATORS) + '\n'
             list_of_lists.clear()
             total_line_size_in_list_of_lists = 0
             minimum_size_batch_count += 1
     if list_of_lists:
-        yield json.dumps(list_of_lists) + '\n'
+        yield json.dumps(list_of_lists, separators=JSON_SEPARATORS) + '\n'
     log.debug(f"[/] minimum_size_batch_count: {minimum_size_batch_count}")
 
 
