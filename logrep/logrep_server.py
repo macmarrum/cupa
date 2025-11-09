@@ -480,6 +480,21 @@ RX_DISCARD_BEFORE_LINE_NUM = re.compile(r'^discard_before_line_num=(\d+)$')
 RX_DISCARD_AFTER_LINE_NUM = re.compile(r'^discard_after_line_num=(\d+)$')
 
 
+class FileNamePrependQueue(queue.Queue):
+    """Ensures ``file_name`` is put before other items, but only if they are put,
+    to avoid reporting ``file_name`` for empty searches"""
+
+    def __init__(self, maxsize: int = 0):
+        super().__init__(maxsize)
+        self.file_name = None
+
+    def put(self, item, block=True, timeout=None):
+        if self.file_name and item is not None:
+            super().put((0, RecordType.file_path, self.file_name), block, timeout)
+            self.file_name = None
+        super().put(item, block, timeout)
+
+
 async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None):
     pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
     pattern_str = pattern if isinstance(pattern, str) else None
@@ -509,8 +524,8 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         def on_file_open(file_reader):
             """Called for each file; in an archive, for each member"""
             name = file_reader.name
+            que.file_name = name
             log.debug(f"{name=}")
-            que.put((0, RecordType.file_path, name))
 
         try:
             ## sort paths by name (case-insensitive), but capitals first if e.g. A.txt and a.txt
@@ -561,7 +576,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
         finally:
             que.put(None)
 
-    que = queue.Queue()
+    que = FileNamePrependQueue()
     thread = threading.Thread(target=_gen_matching_lines, args=(que,))
     thread.start()
     try:
