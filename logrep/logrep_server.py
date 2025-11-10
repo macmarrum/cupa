@@ -473,10 +473,10 @@ class FileReader:
 
     @property
     def name(self):
-        if not self._outer_file:
-            return f"{self._file_path}"
-        else:
+        if self._outer_file:
             return f"{self._file_path}#{self._file.name}"
+        else:
+            return f"{self._file_path}"
 
 
 class RecordType:
