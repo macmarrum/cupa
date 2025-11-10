@@ -461,7 +461,7 @@ class FileReader:
         self._file.seek(offset, whence)
 
     def rewind(self):
-        """Rewinds to the beginning: reopens ZipFile or TarFile or calls ``_file.seek(0)`` on non-archive files"""
+        """Rewinds to the beginning: reopens the file for ZipFile or TarFile; calls ``_file.seek(0)`` for non-archive files"""
         if self._outer_file:
             self.__exit__(None, None, None)
             self.__enter__()
