@@ -376,7 +376,6 @@ class FileReader:
         self._file = None
         self._file_iterator = None
         self._outer_file = None
-        self.skip_rest = False
 
     def __enter__(self):
         name = self._file_path.name
@@ -416,16 +415,9 @@ class FileReader:
                 if binary_file := self._outer_file.extractfile(tarinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
                     self._fire_on_file_open()
-                    yield from self._iter_lines_until_skip_rest()
+                    yield from self._file
 
         self._file_iterator = _iter_file()
-
-    def _iter_lines_until_skip_rest(self):
-        for line in self._file:
-            if self.skip_rest:
-                self.skip_rest = False
-                break
-            yield line
 
     def _open_zip(self):
         self._outer_file = zipfile.ZipFile(self._file_path, 'r')
@@ -439,19 +431,17 @@ class FileReader:
                 if binary_file := self._outer_file.open(zipinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
                     self._fire_on_file_open()
-                    yield from self._iter_lines_until_skip_rest()
+                    yield from self._file
 
         self._file_iterator = _iter_file()
 
     def _open_compressed(self, compressor):
-        self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._fire_on_file_open()
-        self._file_iterator = self._iter_lines_until_skip_rest()
 
     def _open_file(self):
-        self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file_iterator = self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._fire_on_file_open()
-        self._file_iterator = self._iter_lines_until_skip_rest()
 
     def _fire_on_file_open(self):
         if self._on_file_open:
@@ -469,12 +459,21 @@ class FileReader:
     def __iter__(self):
         return self._file_iterator
 
-    def seek(self, offset, whence=os.SEEK_SET, /):
+    def inner_seek(self, offset, whence=os.SEEK_SET, /):
+        """Forwards to ``_file.seek``"""
         self._file.seek(offset, whence)
+
+    def rewind(self):
+        """Rewinds to the beginning: reopens ZipFile or TarFile or calls ``_file.seek(0)`` on non-archive files"""
+        if self._outer_file:
+            self.__exit__(None, None, None)
+            self.__enter__()
+        else:
+            self._file.seek(0)
 
     @property
     def name(self):
-        if self._file is self._file_iterator:
+        if not self._outer_file:
             return f"{self._file_path}"
         else:
             return f"{self._file_path}#{self._file.name}"
@@ -524,7 +523,8 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
               f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
               f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
               f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}], {after_context=}, "
-              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}])")
+              f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}], "
+              f"{files_with_matches=})")
     before_deque = collections.deque(maxlen=before_context) if before_context else None
 
     def _gen_matching_lines(que):
@@ -554,7 +554,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                             line_num += 1
                             if (discard_before_rx and discard_before_rx.search(line)) or (discard_before_str and discard_before_str in line):
                                 discard_before_line_num = line_num
-                        file.seek(0)
+                        file.rewind()
                     log.debug(f"{discard_before_line_num=}")
                     line_num = 0
                     lines_after = 0
@@ -571,7 +571,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
                             if files_with_matches:
                                 que.put(FileNamePrependQueue.FLUSH_FILE_NAME)
-                                file.skip_rest = True
+                                file.inner_seek(0, os.SEEK_END)
                             else:
                                 while before_deque:
                                     que.put(before_deque.popleft())

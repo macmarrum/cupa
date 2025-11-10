@@ -289,6 +289,23 @@ async def test_gen_matching_lines__discard_before__matches_multiple_lines__expec
     assert actual == expected
 
 
+async def test_gen_matching_lines__tar_gz__discard_before__matches_multiple_lines__expected_last_match(context):
+    file_path2 = context['file_path2']
+    file_path_tar_gz = context['file_path_tar_gz']
+    discard_before = 'four'
+    before_context = 0
+    pattern = None
+    except_pattern = None
+    after_context = 0
+    discard_after = None
+    expected = [
+        (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
+        (20 + 14, RecordType.discard_before, 'file_path2 line 14 fourteen catorce'),
+    ]
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    assert actual == expected
+
+
 async def test_gen_matching_lines__not_foundable_discard_before__pattern(context):
     file_path = context['file_path']
     discard_before = 'this line does not exist in the file'
