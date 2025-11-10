@@ -367,6 +367,7 @@ async def search_logs(a: SearchArgs):
 
 
 class FileReader:
+    """Reads text files. Handles the standard compression and archive formats. In the case of an archive, fires on_file_open for each member but concats each member's content for all other operations"""
 
     def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict', on_file_open: Callable[['FileReader'], None] | None = None):
         self._file_path = file_path
