@@ -369,7 +369,7 @@ async def search_logs(a: SearchArgs):
 class FileReader:
     """Reads text files. Handles the standard compression and archive formats. In the case of an archive, fires on_file_open for each member but concats each member's content for all other operations"""
 
-    def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict', on_file_open: Callable[['FileReader'], None] | None = None):
+    def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict', on_file_open: Callable[['FileReader'], None] = lambda _: None):
         self._file_path = file_path
         self._encoding = encoding
         self._errors = errors
@@ -415,7 +415,7 @@ class FileReader:
                     self._file.close()
                 if binary_file := self._outer_file.extractfile(tarinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
-                    self._fire_on_file_open()
+                    self._on_file_open(self)
                     yield from self._file
 
         self._file_iterator = _iter_file()
@@ -431,22 +431,18 @@ class FileReader:
                     self._file.close()
                 if binary_file := self._outer_file.open(zipinfo):
                     self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
-                    self._fire_on_file_open()
+                    self._on_file_open(self)
                     yield from self._file
 
         self._file_iterator = _iter_file()
 
     def _open_compressed(self, compressor):
         self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
-        self._fire_on_file_open()
+        self._on_file_open(self)
 
     def _open_file(self):
         self._file_iterator = self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
-        self._fire_on_file_open()
-
-    def _fire_on_file_open(self):
-        if self._on_file_open:
-            self._on_file_open(self)
+        self._on_file_open(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         with contextlib.suppress(Exception):
