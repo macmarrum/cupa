@@ -45,6 +45,7 @@ else:
 me = Path(__file__)
 UTF8 = 'UTF-8'
 APPLICATION_X_NDJSON = 'application/x-ndjson'
+SEARCH = 'search'
 config_path = me.with_suffix('.toml')
 
 formatter = logging.Formatter('{asctime} {levelname} {name} [{funcName}] {message}', style='{')
@@ -236,7 +237,7 @@ class SearchResponse(BaseModel):
     matches: list[tuple[int, str, str]]
 
 
-@app.get(f"/{top_level_settings.uuid}/search")
+@app.get(f"/{top_level_settings.uuid}/{SEARCH}")
 async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None, files_with_matches: bool | None = None):
     try:
         search_args = await SearchArgs.merge_with_settings_and_validate(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
@@ -249,7 +250,7 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post(f"/{top_level_settings.uuid}/search")
+@app.post(f"/{top_level_settings.uuid}/{SEARCH}")
 async def search_logs_post(sr: SearchRequest):
     try:
         search_args = await SearchArgs.merge_with_settings_and_validate(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after, sr.files_with_matches)
@@ -612,7 +613,7 @@ def main(host=None, port=None, uuid_str=None, ssl_keyfile=None, ssl_keyfile_pass
     hostname = host if IPv4Address(host).is_loopback else socket.gethostname()
     uuid_str = uuid_str or top_level_settings.uuid
     url = f"http{'s' if ssl_keyfile and ssl_certificate else ''}://{hostname}:{port}/{uuid_str}"
-    log.info(f"Starting logrep server: {url}")
+    log.info(f"Starting logrep server: {url}/{SEARCH}")
     log.info(f"{ssl_keyfile=}, {ssl_certificate=}")
     log_config = {
         'version': 1,

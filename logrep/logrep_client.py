@@ -8,7 +8,7 @@ import re
 import sys
 import tomllib
 from collections.abc import Callable, Generator, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import ClassVar
@@ -76,6 +76,8 @@ class Arguments:
     footer_template: str | None
     template_processor: str | None | Callable
     output: str | None
+    url_query: str = field(default=None, init=False)
+    search_args: dict = field(default=None, init=False)
     RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
     def __post_init__(self):
@@ -88,7 +90,18 @@ class Arguments:
         _after_context = f"after_context={self.after_context}" if self.after_context else None
         _discard_after = f"discard_after={quote(self.discard_after)}" if self.discard_after else None
         _files_with_matches = 'files_with_matches=true' if self.files_with_matches else None
-        self.url = f"{self.url.rstrip('/')}/search?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after, _files_with_matches] if e)}"
+        self.url = self.url.rstrip('/')
+        self.url_query = f"?{'&'.join(e for e in [_profile, _before_context, _pattern, _except_pattern, _after_context, _discard_before, _discard_after, _files_with_matches] if e)}"
+        self.search_args = {k: v for k, v in {
+            'profile': self.profile,
+            'discard_before': self.discard_before,
+            'before_context': self.before_context,
+            'pattern': self.pattern,
+            'except_pattern': self.except_pattern,
+            'after_context': self.after_context,
+            'discard_after': self.discard_after,
+            'files_with_matches': self.files_with_matches,
+        }.items() if v is not None}
         self.use_color = self.color == 'always' or (self.color == 'auto' and sys.stdout.isatty())
         self.template_processor = self.resolve_callable(self.template_processor)
 
@@ -336,11 +349,11 @@ def fetch_and_iter_ndjsons(argv=None, a: Arguments = None):
 
 def fetch_resp(argv=None, a: Arguments = None):
     a = a or Arguments.from_argv(argv)
-    a.verbose and print(f"{Fore.CYAN}{a.url}{Style.RESET_ALL}" if a.use_color else a.url, file=sys.stderr)
+    url_with_query = f"{a.url}{a.url_query}"
+    a.verbose and print(f"{Fore.CYAN}{url_with_query}\n{a.search_args}{Style.RESET_ALL}" if a.use_color else url_with_query, file=sys.stderr)
     headers = {'Accept-Encoding': 'identity' if a.identity else 'zstd'}
-    # print(f"GET {url}, headers={HEADERS}, verify={verify!r}", file=sys.stderr)
     try:
-        resp = requests.get(a.url, headers=headers, verify=a.verify, stream=True)
+        resp = requests.post(a.url, verify=a.verify, headers=headers, json=a.search_args, stream=True)
     except requests.ConnectionError as e:
         et = type(e)
         print(f"{et.__module__}.{et.__qualname__}: {e}", file=sys.stderr)
