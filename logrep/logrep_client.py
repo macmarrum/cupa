@@ -209,6 +209,11 @@ class Arguments:
         return argv
 
 
+def escape_html_except_quotes(s: str):
+    """Like ``html.escape(s, quote=False)``"""
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
 
