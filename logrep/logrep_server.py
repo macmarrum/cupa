@@ -160,11 +160,6 @@ class SearchArgs:
         )
 
 
-## How to generate private key and self-signed certificate (365 days)
-## Add ",IP:$(hostname -i)" to subjectAltName if you want to access your server via IP address; requires `hostname` from GNU inetutils
-# openssl genpkey -algorithm ED25519 -out private.key
-# openssl req -new -x509 -key private.key -out certificate.crt -days 365 -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname),DNS:localhost,IP:127.0.0.1"
-
 TOP_LEVEL = '#top-level'
 ProfileToSettings = dict[str, Settings]
 
