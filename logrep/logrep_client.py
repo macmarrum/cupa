@@ -4,6 +4,7 @@
 import argparse
 import importlib
 import json
+import logging
 import re
 import sys
 import tomllib
@@ -54,6 +55,7 @@ class Settings:
     header_template: str | None = None
     footer_template: str | None = None
     template_processor: str | None = None
+    local_path: str | None = None
 
 
 @dataclass
@@ -78,6 +80,7 @@ class Arguments:
     output: str | None
     url_query: str = field(default=None, init=False)
     search_args: dict = field(default=None, init=False)
+    local_path: str | None = None
     RX_ARG_EQ: ClassVar[re.Pattern] = re.compile(r'-{1,2}[a-zA-Z0-9-]+=')
 
     def __post_init__(self):
@@ -160,6 +163,7 @@ class Arguments:
         output_gr = parser.add_mutually_exclusive_group(required=False)
         output_gr.add_argument('-j', '--json', action='store_const', dest='output', const='json')
         output_gr.add_argument('-J', '--ndjson', action='store_const', dest='output', const='ndjson')
+        parser.add_argument('-p', '--local-path', help='Run logrep on local file(s)')
         args = parser.parse_args(argv)
         profile_to_settings = load_config()
         try:
@@ -186,6 +190,7 @@ class Arguments:
             footer_template=settings.footer_template,
             template_processor=settings.template_processor,
             output=args.output,
+            local_path=args.local_path or settings.local_path,
         )
 
     @classmethod
@@ -287,7 +292,15 @@ class RecordType:
 
 def grep(argv=None, a: Arguments = None):
     a = a or Arguments.from_argv(argv)
+    pattern_rx, pattern_str = _parse_pattern_and_init_colorama(a)
     prev_num = 0
+    template_open = False
+    for line_num, record_type, line in iter_records(argv, a):
+        prev_num, template_open = _grep_record(line_num, record_type, line, pattern_rx, pattern_str, a, prev_num, template_open)
+    print_footer_if_required(template_open, a)
+
+
+def _parse_pattern_and_init_colorama(a: Arguments | None) -> tuple[re.Pattern, str]:
     pattern_str = pattern_rx = None
     if a.use_color and a.pattern:
         init()  # colorama
@@ -295,31 +308,33 @@ def grep(argv=None, a: Arguments = None):
             pattern_rx = re.compile(a.pattern)
         else:
             pattern_str = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', a.pattern)
-    template_open = False
-    for line_num, record_type, line in iter_records(argv, a):
-        if line_num == 0 and record_type == RecordType.file_path and a.header_template:
-            print_footer_if_required(template_open, a)
-            file_name = Path(line).name
-            msg = HeaderTemplate(a.header_template).format(a, file_name=file_name)
-            print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
-            template_open = True
-            prev_num = 0
-        else:
-            sep = ':' if record_type == RecordType.pattern else '-'
-            if prev_num and prev_num + 1 != line_num:
-                if a.use_color:
-                    print(f"{Fore.GREEN}--{Fore.RESET}")
-                else:
-                    print('--')
+    return pattern_rx, pattern_str
+
+
+def _grep_record(line_num: int, record_type: str, line: str, pattern_rx: re.Pattern | None, pattern_str: str | None, a: Arguments, prev_num: int, template_open: bool):
+    if line_num == 0 and record_type == RecordType.file_path and a.header_template:
+        print_footer_if_required(template_open, a)
+        file_name = Path(line).name
+        msg = HeaderTemplate(a.header_template).format(a, file_name=file_name)
+        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
+        template_open = True
+        prev_num = 0
+    else:
+        sep = ':' if record_type == RecordType.pattern else '-'
+        if prev_num and prev_num + 1 != line_num:
             if a.use_color:
-                colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if a.line_number else ''
-                _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
-                print(f"{colored_num_sep}{_line_}")
+                print(f"{Fore.GREEN}--{Fore.RESET}")
             else:
-                num_sep = f"{line_num}{sep}" if a.line_number else ''
-                print(f"{num_sep}{line}")
-            prev_num = line_num
-    print_footer_if_required(template_open, a)
+                print('--')
+        if a.use_color:
+            colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if a.line_number else ''
+            _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
+            print(f"{colored_num_sep}{_line_}")
+        else:
+            num_sep = f"{line_num}{sep}" if a.line_number else ''
+            print(f"{num_sep}{line}")
+        prev_num = line_num
+    return prev_num, template_open
 
 
 def grep_records(argv=None, a: Arguments = None):
@@ -436,16 +451,50 @@ def gen_segments_with_is_match(line: str, pattern: re.Pattern) -> Generator[tupl
                 yield False, line[suffix_start:len(line)]
 
 
+def grep_local_path(a: Arguments):
+    import asyncio
+    asyncio.run(_grep_local_path(a))
+
+
+async def _grep_local_path(a: Arguments):
+    sys.path.insert(0, str(me.parent))
+    from logrep_server import gen_matching_lines, log, queue_listener, SearchArgs
+    log.setLevel(logging.INFO)
+    queue_listener.start()
+    sa = await SearchArgs.merge_with_settings_and_validate(a.profile, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after, a.files_with_matches)
+    json_output = a.output == 'json'
+    if json_output:
+        a.use_color = False
+    pattern_rx, pattern_str = _parse_pattern_and_init_colorama(a)
+    prev_num = 0
+    template_open = False
+    async for record in gen_matching_lines(Path(a.local_path).absolute(), sa.discard_before, sa.before_context, sa.pattern, sa.except_pattern, sa.after_context, sa.discard_after, sa.files_with_matches):
+        if json_output:
+            print(record)
+        else:
+            line_num, record_type, line = record
+            prev_num, template_open = _grep_record(line_num, record_type, line, pattern_rx, pattern_str, a, prev_num, template_open)
+    if not json_output:
+        print_footer_if_required(template_open, a)
+    queue_listener.stop()
+
+
 def main(argv=None):
     a = Arguments.from_argv(argv)
-    match a.output:
-        case 'ndjson':
-            for ndjson in fetch_and_iter_ndjsons(a=a):
-                print(ndjson)
-        case 'json':
-            grep_records(a=a)
-        case _:
-            grep(a=a)
+    if a.local_path:
+        if a.output == 'ndjson':
+            print('output=ndjson is not supported for local files')
+        else:
+            grep_local_path(a)
+    else:
+        match a.output:
+            case 'ndjson':
+                for ndjson in fetch_and_iter_ndjsons(a=a):
+                    print(ndjson)
+            case 'json':
+                grep_records(a=a)
+            case _:
+                grep(a=a)
 
 
 if __name__ == '__main__':
