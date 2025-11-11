@@ -384,19 +384,51 @@ def make_colored_line(line: str, pattern_str: str | None, pattern_rx: re.Pattern
 
 def gen_segments_with_is_match(line: str, pattern: re.Pattern) -> Generator[tuple[bool, str], None, None]:
     """Decomposes a line based on a regex pattern into segments (is_match, text)"""
-    # Find all matches of the pattern in the line
-    current_pos = 0
+    matches = []
+    max_not_none_group_count = 0
     for match in pattern.finditer(line):
-        # Add unmatched text before this match
-        if match.start() > current_pos:
-            yield False, line[current_pos:match.start()]
-        # Add the matched text (find which group actually matched)
-        matched_text = match.group(0)
-        yield True, matched_text
-        current_pos = match.end()
-    # Add remaining unmatched text after the last match or if no match at all
-    if current_pos < len(line):
-        yield False, line[current_pos:]
+        matches.append(match)
+        max_not_none_group_count = max(max_not_none_group_count, len(groups := match.groups()) - groups.count(None))
+    if max_not_none_group_count <= 1:
+        ## Handle alternative groups
+        current_pos = 0
+        for match in matches:
+            ## Add unmatched text before this match
+            if match.start() > current_pos:
+                yield False, line[current_pos:match.start()]
+            ## Add the matched text (find which group actually matched)
+            matched_text = match.group(0)
+            yield True, matched_text
+            current_pos = match.end()
+        ## Add remaining unmatched text after the last match or if no match at all
+        if current_pos < len(line):
+            yield False, line[current_pos:]
+    else:
+        ## Handle non-alternative groups
+        for m in matches:
+            ## 1. Handle the prefix (unmatched text before the full match)
+            prefix_end = m.start(0)
+            if prefix_end > 0:
+                yield False, line[0:prefix_end]
+            ## 2. Iterate through all captured groups and the text between them
+            current_pos = m.start(0)
+            for g in range(1, len(m.groups()) + 1):
+                group_start = m.start(g)
+                group_end = m.end(g)
+                group_text = m.group(g)
+                ## A. Handle the UNMATCHED text between the last position and the current group's start
+                if group_start > current_pos:
+                    unmatched_text = line[current_pos:group_start]
+                    yield False, unmatched_text
+                ## B. Handle the CAPTURED GROUP text (is_match = True)
+                if group_text is not None:
+                    yield True, group_text
+                ## Update the current position to the end of the current group
+                current_pos = group_end
+            ## 3. Handle the suffix (unmatched text after the full match)
+            suffix_start = m.end(0)
+            if suffix_start < len(line):
+                yield False, line[suffix_start:len(line)]
 
 
 def main(argv=None):
