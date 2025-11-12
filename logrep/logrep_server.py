@@ -356,7 +356,7 @@ async def search_logs(a: SearchArgs):
     list_of_lists = []
     total_line_size_in_list_of_lists = 0
     minimum_size_batch_count = 0
-    async for item in gen_matching_lines(file_path, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after, a.files_with_matches):
+    async for item in gen_matching_lines(file_path, a):
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
@@ -510,22 +510,22 @@ class FileNamePrependQueue(queue.Queue):
             super().put(item, block, timeout)
 
 
-async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern | None, before_context: int, pattern: str | re.Pattern | None, except_pattern: str | re.Pattern | None, after_context: int, discard_after: str | re.Pattern | None, files_with_matches=False):
-    pattern_rx = pattern if isinstance(pattern, re.Pattern) else None
-    pattern_str = pattern if isinstance(pattern, str) else None
-    except_pattern_rx = except_pattern if isinstance(except_pattern, re.Pattern) else None
-    except_pattern_str = except_pattern if isinstance(except_pattern, str) else None
-    discard_before_rx = discard_before if isinstance(discard_before, re.Pattern) else None
-    discard_before_str = discard_before if isinstance(discard_before, str) else None
-    discard_after_rx = discard_after if isinstance(discard_after, re.Pattern) else None
-    discard_after_str = discard_after if isinstance(discard_after, str) else None
+async def gen_matching_lines(file_path: Path, a: SearchArgs):
+    pattern_rx = a.pattern if isinstance(a.pattern, re.Pattern) else None
+    pattern_str = a.pattern if isinstance(a.pattern, str) else None
+    except_pattern_rx = a.except_pattern if isinstance(a.except_pattern, re.Pattern) else None
+    except_pattern_str = a.except_pattern if isinstance(a.except_pattern, str) else None
+    discard_before_rx = a.discard_before if isinstance(a.discard_before, re.Pattern) else None
+    discard_before_str = a.discard_before if isinstance(a.discard_before, str) else None
+    discard_after_rx = a.discard_after if isinstance(a.discard_after, re.Pattern) else None
+    discard_after_str = a.discard_after if isinstance(a.discard_after, str) else None
     log.debug(f"({file_path.name!r}, "
               f"discard_before={discard_before_rx.pattern if discard_before_rx else discard_before_str!r} [{'re' if discard_before_rx else 'str'}], "
-              f"{before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
-              f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}], {after_context=}, "
+              f"{a.before_context=}, pattern={pattern_rx.pattern if pattern_rx else pattern_str!r} [{'re' if pattern_rx else 'str'}], "
+              f"except_pattern={except_pattern_rx.pattern if except_pattern_rx else except_pattern_str!r} [{'re' if except_pattern_rx else 'str'}], {a.after_context=}, "
               f"discard_after={discard_after_rx.pattern if discard_after_rx else discard_after_str!r} [{'re' if discard_after_rx else 'str'}], "
-              f"{files_with_matches=})")
-    before_deque = collections.deque(maxlen=before_context) if before_context else None
+              f"{a.files_with_matches=})")
+    before_deque = collections.deque(maxlen=a.before_context) if a.before_context else None
 
     def _gen_matching_lines(que):
         discard_before_line_num = 0
@@ -569,7 +569,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                                 que.put((line_num, RecordType.discard_before, line))
                         if (((pattern_rx and pattern_rx.search(line)) or (pattern_str and pattern_str in line))
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
-                            if files_with_matches:
+                            if a.files_with_matches:
                                 que.put(FileNamePrependQueue.FLUSH_FILE_NAME)
                                 file.inner_seek(0, os.SEEK_END)
                             else:
@@ -582,7 +582,7 @@ async def gen_matching_lines(file_path: Path, discard_before: str | re.Pattern |
                             if before_deque is not None:
                                 before_deque.append((line_num, RecordType.before_context, line))
                             if match_found_so_can_process_after_context:
-                                if lines_after < after_context:
+                                if lines_after < a.after_context:
                                     que.put((line_num, RecordType.after_context, line))
                                     lines_after += 1
                                 else:

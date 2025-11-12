@@ -469,7 +469,7 @@ async def _grep_local_path(a: Arguments):
     pattern_rx, pattern_str = _parse_pattern_and_init_colorama(a)
     prev_num = 0
     template_open = False
-    async for record in gen_matching_lines(Path(a.local_path).absolute(), sa.discard_before, sa.before_context, sa.pattern, sa.except_pattern, sa.after_context, sa.discard_after, sa.files_with_matches):
+    async for record in gen_matching_lines(Path(a.local_path).absolute(), sa):
         if json_output:
             print(record)
         else:

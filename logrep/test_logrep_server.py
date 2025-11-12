@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from logrep.logrep_server import gen_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, RecordType
+from logrep.logrep_server import gen_matching_lines, RX_ESCAPE_FOLLOWED_BY_SPECIAL, is_probably_complex_pattern, RecordType, SearchArgs
 
 
 @pytest.fixture
@@ -69,7 +69,8 @@ async def test_gen_matching_lines__pattern_str_plain(context):
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -86,7 +87,8 @@ async def test_gen_matching_lines__pattern_rx_plain(context):
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -103,7 +105,8 @@ async def test_gen_matching_lines__pattern_str_escaped(context):
         (5, RecordType.pattern, 'line 5.five cinco'),
         (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -122,7 +125,8 @@ async def test_gen_matching_lines__pattern_rx_escaped(context):
         (5, RecordType.pattern, 'line 5.five cinco'),
         (15, RecordType.pattern, 'line 15.fifteen quince'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -138,7 +142,8 @@ async def test_gen_matching_lines__discard_after_str_plain(context):
         (0, RecordType.file_path, f"{file_path}"),
         (2, RecordType.discard_after, 'line 2 two dos'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -154,7 +159,8 @@ async def test_gen_matching_lines__discard_before_str_plain(context):
         (0, RecordType.file_path, f"{file_path}"),
         (19, RecordType.discard_before, 'line 19 nineteen diecinueve'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -173,7 +179,8 @@ async def test_gen_matching_lines__pattern__discard_after(context):
         (11, RecordType.pattern, 'line 11 eleven once'),
         (11, RecordType.discard_after, 'line 11 eleven once'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -191,7 +198,8 @@ async def test_gen_matching_lines__pattern__discard_before(context):
         (12, RecordType.pattern, 'line 12 twelve doce'),
         (20, RecordType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -212,7 +220,8 @@ async def test_gen_matching_lines__before_context__pattern__after_context__disca
         (11, RecordType.pattern, 'line 11 eleven once'),
         (11, RecordType.discard_after, 'line 11 eleven once'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -230,7 +239,8 @@ async def test_gen_matching_lines__discard_before__pattern__discard_after(contex
         (17, RecordType.pattern, 'line 17 seventeen diecisiete'),
         (19, RecordType.discard_after, 'line 19 nineteen diecinueve')
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -251,7 +261,8 @@ async def test_gen_matching_lines__discard_before__before_context__pattern__afte
         (19, RecordType.before_context, 'line 19 nineteen diecinueve'),
         (20, RecordType.pattern, 'line 20 twenty veinte'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -269,7 +280,8 @@ async def test_gen_matching_lines__pattern__after_context__discard_before__same_
         (11, RecordType.pattern, 'line 11 eleven once'),
         (12, RecordType.after_context, 'line 12 twelve doce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -285,7 +297,8 @@ async def test_gen_matching_lines__discard_before__matches_multiple_lines__expec
         (0, RecordType.file_path, f"{file_path}"),
         (14, RecordType.discard_before, 'line 14 fourteen catorce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -302,7 +315,8 @@ async def test_gen_matching_lines__tar_gz__discard_before__matches_multiple_line
         (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
         (20 + 14, RecordType.discard_before, 'file_path2 line 14 fourteen catorce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, search_args)]
     assert actual == expected
 
 
@@ -319,7 +333,8 @@ async def test_gen_matching_lines__not_foundable_discard_before__pattern(context
         (4, RecordType.pattern, 'line 4 four cuatro'),
         (14, RecordType.pattern, 'line 14 fourteen catorce'),
     ]
-    actual = [e async for e in gen_matching_lines(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after)
+    actual = [e async for e in gen_matching_lines(file_path, search_args)]
     assert actual == expected
 
 
@@ -338,7 +353,8 @@ async def test_gen_matching_lines__tar_gz__files_with_matches__multiple(context)
         (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path.name}"),
         (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
     ]
-    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)]
+    search_args = SearchArgs(file_path, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, search_args)]
     assert actual == expected
 
 
@@ -355,5 +371,6 @@ async def test_gen_matching_lines__tar_gz__files_with_matches__single(context):
     expected = [
         (0, RecordType.file_path, f"{file_path_tar_gz}#{file_path2.name}"),
     ]
-    actual = [e async for e in gen_matching_lines(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)]
+    search_args = SearchArgs(file_path_tar_gz, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
+    actual = [e async for e in gen_matching_lines(file_path_tar_gz, search_args)]
     assert actual == expected
