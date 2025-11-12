@@ -458,10 +458,11 @@ def grep_local_path(a: Arguments):
 
 async def _grep_local_path(a: Arguments):
     sys.path.insert(0, str(me.parent))
-    from logrep_server import gen_matching_lines, log, queue_listener, SearchArgs
+    from logrep_server import gen_matching_lines, log, queue_listener, Settings as ServerSettings, SearchArgs
     log.setLevel(logging.INFO)
     queue_listener.start()
-    sa = await SearchArgs.merge_with_settings_and_validate(a.profile, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after, a.files_with_matches)
+    empty_settings = ServerSettings(profile='', uuid='')
+    sa = SearchArgs.from_settings_and_args_with_validation(empty_settings, a.discard_before, a.before_context, a.pattern, a.except_pattern, a.after_context, a.discard_after, a.files_with_matches)
     json_output = a.output == 'json'
     if json_output:
         a.use_color = False

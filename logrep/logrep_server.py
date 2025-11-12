@@ -108,15 +108,8 @@ class SearchArgs:
     files_with_matches: bool = False
 
     @classmethod
-    async def merge_with_settings_and_validate(cls, profile: str | None, discard_before: str | None, before_context: int | None, pattern: str | None, except_pattern: str | None, after_context: int | None, discard_after: str | None, files_with_matches: bool):
+    def from_settings_and_args_with_validation(cls, settings: Settings, discard_before: str | None, before_context: int | None, pattern: str | None, except_pattern: str | None, after_context: int | None, discard_after: str | None, files_with_matches: bool):
         """For creation of SearchArgs with validation before streaming starts"""
-        profile_to_settings = await config_loader.get_fresh_profile_to_settings()
-        if profile:
-            settings = profile_to_settings.get(profile)
-            if not settings:
-                raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
-        else:
-            settings = profile_to_settings[TOP_LEVEL]
         _before_context = before_context if before_context is not None else settings.before_context
         if _before_context < 0:
             raise HTTPException(status_code=400, detail='before_context must be non-negative')
@@ -221,6 +214,17 @@ config_loader = ConfigLoader(config_path)
 top_level_settings = config_loader.fresh_profile_to_settings[TOP_LEVEL]
 
 
+async def get_settings(profile: str):
+    profile_to_settings = await config_loader.get_fresh_profile_to_settings()
+    if profile:
+        settings = profile_to_settings.get(profile)
+        if not settings:
+            raise HTTPException(status_code=404, detail=f"profile not found: {profile!r}")
+    else:
+        settings = profile_to_settings[TOP_LEVEL]
+    return settings
+
+
 class SearchRequest(BaseModel):
     profile: str | None = None
     discard_before: str | None = None
@@ -240,7 +244,8 @@ class SearchResponse(BaseModel):
 @app.get(f"/{top_level_settings.uuid}/{SEARCH}")
 async def search_logs_get(profile: str | None = None, discard_before: str | None = None, before_context: int | None = None, pattern: str | None = None, except_pattern: str | None = None, after_context: int | None = None, discard_after: str | None = None, files_with_matches: bool | None = None):
     try:
-        search_args = await SearchArgs.merge_with_settings_and_validate(profile, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
+        settings = await get_settings(profile)
+        search_args = SearchArgs.from_settings_and_args_with_validation(settings, discard_before, before_context, pattern, except_pattern, after_context, discard_after, files_with_matches)
         return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
@@ -253,7 +258,8 @@ async def search_logs_get(profile: str | None = None, discard_before: str | None
 @app.post(f"/{top_level_settings.uuid}/{SEARCH}")
 async def search_logs_post(sr: SearchRequest):
     try:
-        search_args = await SearchArgs.merge_with_settings_and_validate(sr.profile, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after, sr.files_with_matches)
+        settings = await get_settings(sr.profile)
+        search_args = SearchArgs.from_settings_and_args_with_validation(settings, sr.discard_before, sr.before_context, sr.pattern, sr.except_pattern, sr.after_context, sr.discard_after, sr.files_with_matches)
         return StreamingResponse(search_logs(search_args), media_type=APPLICATION_X_NDJSON)
     except HTTPException:
         raise
