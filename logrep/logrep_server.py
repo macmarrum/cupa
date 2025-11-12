@@ -60,6 +60,7 @@ log = logging.getLogger(me.stem)
 log.addHandler(queue_handler)
 log.setLevel(logging.DEBUG)
 
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     """https://github.com/fastapi/fastapi/blob/master/docs/en/docs/advanced/events.md"""
@@ -235,11 +236,6 @@ class SearchRequest(BaseModel):
     after_context: int | None = None
     discard_after: str | None = None
     files_with_matches: bool | None = None
-
-
-class SearchResponse(BaseModel):
-    file_path: str
-    matches: list[tuple[int, str, str]]
 
 
 @app.get(f"/{top_level_settings.uuid}/{SEARCH}")
