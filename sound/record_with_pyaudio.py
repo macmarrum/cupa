@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # Copyright 2025  macmarrum (at) outlook (dot) ie
 # SPDX-License-Identifier: Apache-2.0
 import tomllib
