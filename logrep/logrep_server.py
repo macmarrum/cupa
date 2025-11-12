@@ -345,14 +345,14 @@ def is_probably_complex_pattern(pattern: str):
 JSON_SEPARATORS = (',', ':')
 
 
-async def search_logs(a: SearchArgs):
+async def search_logs(search_args: SearchArgs):
     """Common search logic for both GET and POST endpoints; streams matching lines as NDJSON"""
-    log.info(f"{a=}")
-    file_path = Path(StrftimeTemplate(a.settings.file_path).substitute({'timezone': a.settings.timezone})).absolute()
+    log.info(f"{search_args=}")
+    file_path = Path(StrftimeTemplate(search_args.settings.file_path).substitute({'timezone': search_args.settings.timezone})).absolute()
     list_of_lists = []
     total_line_size_in_list_of_lists = 0
     minimum_size_batch_count = 0
-    async for item in gen_matching_lines(file_path, a):
+    async for item in gen_matching_lines(file_path, search_args):
         list_of_lists.append(item)
         total_line_size_in_list_of_lists += len(item[2])
         if total_line_size_in_list_of_lists >= MINIMUM_SIZE:
