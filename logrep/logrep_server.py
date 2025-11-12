@@ -60,8 +60,9 @@ log = logging.getLogger(me.stem)
 log.addHandler(queue_handler)
 log.setLevel(logging.DEBUG)
 
-
-def fastapi_lifespan(app: FastAPI):
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """https://github.com/fastapi/fastapi/blob/master/docs/en/docs/advanced/events.md"""
     log.info("Starting log_queue listener")
     queue_listener.start()
     yield
@@ -70,7 +71,7 @@ def fastapi_lifespan(app: FastAPI):
 
 
 MINIMUM_SIZE = 1000
-app = FastAPI(lifespan=fastapi_lifespan)
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(ZstdMiddleware, minimum_size=MINIMUM_SIZE)
 
 
