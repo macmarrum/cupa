@@ -365,7 +365,7 @@ async def search_logs(search_args: SearchArgs):
 
 
 class FileReader:
-    """Reads text files. Handles the standard compression and archive formats. In the case of an archive, fires on_file_open for each member but concats each member's content for all other operations"""
+    """Reads text files. Handles the standard compression and archive formats. For archives: fires ``on_file_open`` for each member; iterates through each member's content in turn."""
 
     def __init__(self, file_path: Path, encoding: str = UTF8, errors: str = 'strict', on_file_open: Callable[['FileReader'], None] = lambda _: None):
         self._file_path = file_path
@@ -448,9 +448,11 @@ class FileReader:
         return False  # don't suppress exceptions cauth within with
 
     def __iter__(self):
+        """Creates a new generator-iterator for ``_file``. For archives, this covers each member in turn."""
         return self._file_iterator()
 
     def break_from_file_iteration(self):
+        """Skips the rest of ``_file``. For archives, it allows continuing with the next member if any - unlike ``break``"""
         self._break_from_file_iteration = True
 
     def rewind(self):
@@ -501,6 +503,8 @@ class FileNamePrependQueue(queue.Queue):
 
 
 async def gen_matching_lines(file_path: Path, a: SearchArgs):
+    """For archives, ``discard_before`` and ``discard_after`` apply to the combined content of archive members.
+    This is based on the assumption that an archive's function is to group several parts of what normally would be a single file e.g.: ``2025-11-15_AM.log``, ``2025-11-15_PM.log``"""
     pattern_rx = a.pattern if isinstance(a.pattern, re.Pattern) else None
     pattern_str = a.pattern if isinstance(a.pattern, str) else None
     except_pattern_rx = a.except_pattern if isinstance(a.except_pattern, re.Pattern) else None
