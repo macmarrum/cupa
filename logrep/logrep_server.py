@@ -11,7 +11,6 @@ import io
 import json
 import logging.handlers
 import lzma
-import os
 import queue
 import re
 import socket
@@ -376,6 +375,7 @@ class FileReader:
         self._file = None
         self._file_iterator = None
         self._outer_file = None
+        self._break_from_file_iteration = False
 
     def __enter__(self):
         name = self._file_path.name
@@ -405,11 +405,11 @@ class FileReader:
 
     def _open_tar(self, mode: str):
         self._outer_file = tarfile.open(self._file_path, mode, encoding=self._encoding, errors=self._errors)
-        self._file_iterator = self._iter_each_file_member_of_archive(self._outer_file.getmembers, 'isfile', True, self._outer_file.extractfile)
+        self._file_iterator = lambda: self._iter_each_file_member_of_archive(self._outer_file.getmembers, 'isfile', True, self._outer_file.extractfile)
 
     def _open_zip(self):
         self._outer_file = zipfile.ZipFile(self._file_path, 'r')
-        self._file_iterator = self._iter_each_file_member_of_archive(self._outer_file.infolist, 'is_dir', False, self._outer_file.open)
+        self._file_iterator = lambda: self._iter_each_file_member_of_archive(self._outer_file.infolist, 'is_dir', False, self._outer_file.open)
 
     def _iter_each_file_member_of_archive(self, get_member_info_list: Callable, is_file_func_name: str, expected_value: bool, open_member: Callable):
         for member_info in get_member_info_list():
@@ -419,15 +419,24 @@ class FileReader:
                 binary_file = open_member(member_info)
                 self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
                 self._on_file_open(self)
-                yield from self._file
+                yield from self._iter_file()
+
+    def _iter_file(self):
+        for line in self._file:
+            if self._break_from_file_iteration:
+                self._break_from_file_iteration = False
+                break
+            yield line
 
     def _open_compressed(self, compressor):
-        self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._on_file_open(self)
+        self._file_iterator = self._iter_file
 
     def _open_file(self):
-        self._file_iterator = self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
+        self._file = open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
         self._on_file_open(self)
+        self._file_iterator = self._iter_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         with contextlib.suppress(Exception):
@@ -439,11 +448,10 @@ class FileReader:
         return False  # don't suppress exceptions cauth within with
 
     def __iter__(self):
-        return self._file_iterator
+        return self._file_iterator()
 
-    def inner_seek(self, offset, whence=os.SEEK_SET, /):
-        """Forwards to ``_file.seek``"""
-        self._file.seek(offset, whence)
+    def break_from_file_iteration(self):
+        self._break_from_file_iteration = True
 
     def rewind(self):
         """Rewinds to the beginning: reopens the file for ZipFile or TarFile; calls ``_file.seek(0)`` for non-archive files"""
@@ -553,7 +561,7 @@ async def gen_matching_lines(file_path: Path, a: SearchArgs):
                                 and not ((except_pattern_rx and except_pattern_rx.search(line)) or (except_pattern_str and except_pattern_str in line))):
                             if a.files_with_matches:
                                 que.put(FileNamePrependQueue.FLUSH_FILE_NAME)
-                                file.inner_seek(0, os.SEEK_END)
+                                file.break_from_file_iteration()
                             else:
                                 while before_deque:
                                     que.put(before_deque.popleft())
