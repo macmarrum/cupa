@@ -405,35 +405,21 @@ class FileReader:
 
     def _open_tar(self, mode: str):
         self._outer_file = tarfile.open(self._file_path, mode, encoding=self._encoding, errors=self._errors)
-
-        def _iter_file():
-            for tarinfo in self._outer_file.getmembers():
-                if not tarinfo.isfile():
-                    continue
-                if self._file:
-                    self._file.close()
-                if binary_file := self._outer_file.extractfile(tarinfo):
-                    self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
-                    self._on_file_open(self)
-                    yield from self._file
-
-        self._file_iterator = _iter_file()
+        self._file_iterator = self._iter_each_file_member_of_archive(self._outer_file.getmembers, 'isfile', True, self._outer_file.extractfile)
 
     def _open_zip(self):
         self._outer_file = zipfile.ZipFile(self._file_path, 'r')
+        self._file_iterator = self._iter_each_file_member_of_archive(self._outer_file.infolist, 'is_dir', False, self._outer_file.open)
 
-        def _iter_file():
-            for zipinfo in self._outer_file.infolist():
-                if zipinfo.is_dir():
-                    continue
+    def _iter_each_file_member_of_archive(self, get_member_info_list: Callable, is_file_func_name: str, expected_value: bool, open_member: Callable):
+        for member_info in get_member_info_list():
+            if getattr(member_info, is_file_func_name)() is expected_value:
                 if self._file:
                     self._file.close()
-                if binary_file := self._outer_file.open(zipinfo):
-                    self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
-                    self._on_file_open(self)
-                    yield from self._file
-
-        self._file_iterator = _iter_file()
+                binary_file = open_member(member_info)
+                self._file = io.TextIOWrapper(binary_file, encoding=self._encoding, errors=self._errors)
+                self._on_file_open(self)
+                yield from self._file
 
     def _open_compressed(self, compressor):
         self._file_iterator = self._file = compressor.open(self._file_path, 'rt', encoding=self._encoding, errors=self._errors)
