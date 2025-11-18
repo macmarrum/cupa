@@ -7,14 +7,15 @@ from typing import TextIO
 
 
 class Tee:
-    RX_ANSI_CODE = re.compile(r'\x1b\[(\d+)(;\d+)*m')
+    _RX_ANSI_SGR_SEQ = re.compile(r'\x1b\[(\d+)(;\d+)*m')
 
-    def __init__(self, file: PathLike | str = None, out: TextIO = None, mode: str = 'w', encoding: str = 'utf-8', errors: str = 'strict'):
+    def __init__(self, file: PathLike | str = None, out: TextIO = None, mode: str = 'w', encoding: str = 'utf-8', errors: str = 'strict', strip_ansi: bool = True):
         self._file = file
         self._out = out or sys.stdout
         self._mode = mode
         self._encoding = encoding
         self._errors = errors
+        self._strip_ansi = strip_ansi
         self._fileobj = None
 
     def open(self):
@@ -35,7 +36,7 @@ class Tee:
 
     def write(self, s: str):
         if self._fileobj:
-            self._fileobj.write(self.RX_ANSI_CODE.sub('', s))
+            self._fileobj.write(self._RX_ANSI_SGR_SEQ.sub('', s) if self._strip_ansi else s)
         self._out.write(s)
 
     def flush(self):
