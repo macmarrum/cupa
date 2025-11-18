@@ -9,7 +9,7 @@ from typing import TextIO
 class Tee:
     RX_ANSI_CODE = re.compile(r'\x1b\[(\d+)(;\d+)*m')
 
-    def __init__(self, file: PathLike | str, out: TextIO = None, mode: str = 'a', encoding: str = 'utf-8', errors: str = 'strict'):
+    def __init__(self, file: PathLike | str = None, out: TextIO = None, mode: str = 'w', encoding: str = 'utf-8', errors: str = 'strict'):
         self._file = file
         self._out = out or sys.stdout
         self._mode = mode
@@ -18,10 +18,12 @@ class Tee:
         self._fileobj = None
 
     def open(self):
-        self._fileobj = open(self._file, self._mode, encoding=self._encoding, errors=self._errors)
+        if self._file:
+            self._fileobj = open(self._file, self._mode, encoding=self._encoding, errors=self._errors)
 
     def close(self):
-        self._fileobj.close()
+        if self._fileobj:
+            self._fileobj.close()
 
     def __enter__(self):
         self.open()
@@ -32,9 +34,11 @@ class Tee:
         return False
 
     def write(self, s: str):
-        self._fileobj.write(self.RX_ANSI_CODE.sub('', s))
+        if self._fileobj:
+            self._fileobj.write(self.RX_ANSI_CODE.sub('', s))
         self._out.write(s)
 
     def flush(self):
-        self._fileobj.flush()
+        if self._fileobj:
+            self._fileobj.flush()
         self._out.flush()
