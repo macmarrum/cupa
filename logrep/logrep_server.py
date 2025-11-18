@@ -241,7 +241,7 @@ async def get_settings(profile: str):
 class SearchRequest(BaseModel):
     profile: str | None = None
     discard_before: str | None = None
-    before_context: str | None = None
+    before_context: int | None = None
     pattern: str | None = None
     except_pattern: str | None = None
     after_context: int | None = None
