@@ -290,13 +290,13 @@ class RecordType:
     discard_after = 'd'
 
 
-def grep(argv=None, a: Arguments = None):
+def grep(argv=None, a: Arguments = None, out=None):
     a = a or Arguments.from_argv(argv)
     pattern_rx, pattern_str = _parse_pattern_and_init_colorama(a)
     prev_num = 0
     template_open = False
     for line_num, record_type, line in iter_records(argv, a):
-        prev_num, template_open = _grep_record(line_num, record_type, line, pattern_rx, pattern_str, a, prev_num, template_open)
+        prev_num, template_open = _grep_record(line_num, record_type, line, pattern_rx, pattern_str, a, prev_num, template_open, out)
     print_footer_if_required(template_open, a)
 
 
@@ -311,37 +311,37 @@ def _parse_pattern_and_init_colorama(a: Arguments | None) -> tuple[re.Pattern, s
     return pattern_rx, pattern_str
 
 
-def _grep_record(line_num: int, record_type: str, line: str, pattern_rx: re.Pattern | None, pattern_str: str | None, a: Arguments, prev_num: int, template_open: bool):
+def _grep_record(line_num: int, record_type: str, line: str, pattern_rx: re.Pattern | None, pattern_str: str | None, a: Arguments, prev_num: int, template_open: bool, out=sys.stdout):
     if line_num == 0 and record_type == RecordType.file_path and a.header_template:
         print_footer_if_required(template_open, a)
         file_name = Path(line).name
         msg = HeaderTemplate(a.header_template).format(a, file_name=file_name)
-        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}")
+        print(f"{Fore.LIGHTYELLOW_EX}{msg}{Style.RESET_ALL}" if a.use_color else f"{msg}", file=out)
         template_open = True
         prev_num = 0
     else:
         sep = ':' if record_type == RecordType.pattern else '-'
         if prev_num and prev_num + 1 != line_num:
             if a.use_color:
-                print(f"{Fore.GREEN}--{Fore.RESET}")
+                print(f"{Fore.GREEN}--{Fore.RESET}", file=out)
             else:
-                print('--')
+                print('--', file=out)
         if a.use_color:
             colored_num_sep = f"{Fore.GREEN}{line_num}{sep}{Style.RESET_ALL}" if a.line_number else ''
             _line_ = make_colored_line(line, pattern_str, pattern_rx) if record_type == RecordType.pattern else line
-            print(f"{colored_num_sep}{_line_}")
+            print(f"{colored_num_sep}{_line_}", file=out)
         else:
             num_sep = f"{line_num}{sep}" if a.line_number else ''
-            print(f"{num_sep}{line}")
+            print(f"{num_sep}{line}", file=out)
         prev_num = line_num
     return prev_num, template_open
 
 
-def grep_records(argv=None, a: Arguments = None):
+def grep_records(argv=None, a: Arguments = None, out=sys.stdout):
     """Prints each record (line_num, record_type, line)"""
     a = a or Arguments.from_argv(argv)
     for record in iter_records(argv, a):
-        print(record)
+        print(record, file=out)
 
 
 def iter_records(argv=None, a: Arguments = None):
