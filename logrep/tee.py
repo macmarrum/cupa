@@ -2,14 +2,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import re
 import sys
+from collections.abc import Iterable
 from os import PathLike
+from pathlib import Path
 from typing import TextIO
+
+UTF8 = 'UTF-8'
 
 
 class Tee:
     _RX_ANSI_SGR_SEQ = re.compile(r'\x1b\[(\d+)(;\d+)*m')
 
-    def __init__(self, file: PathLike | str = None, out: TextIO = None, mode: str = 'w', encoding: str = 'utf-8', errors: str = 'strict', strip_ansi: bool = True):
+    def __init__(self, file: PathLike | str = None, out: TextIO = None, mode: str = 'w', encoding: str = UTF8, errors: str = 'strict', strip_ansi: bool = True):
         self._file = file
         self._out = out or sys.stdout
         self._mode = mode
@@ -43,3 +47,30 @@ class Tee:
         if self._fileobj:
             self._fileobj.flush()
         self._out.flush()
+
+
+def selcat(path: PathLike | str, out: TextIO = None):
+    def sort(_files: Iterable[Path]) -> list[Path]:
+        return sorted(_files, key=lambda p: (p.name.lower(), p.name))
+
+    path = Path(path)
+    if (path.is_dir() and (files := sort(path.iterdir()))) or ('*' in path.name and (files := sort(path.parent.glob(path.name)))):
+        match len(files):
+            case 0:
+                print("No files found", file=sys.stderr)
+                return
+            case 1:
+                file = files[0]
+            case _:
+                for i, file in enumerate(files, start=1):
+                    print(f"{i}: {file}")
+                if (answer := input("Enter number of file to read: ")) and (1 <= (num := int(answer)) <= len(files)):
+                    file = files[num - 1]
+                else:
+                    print("No file selected", file=sys.stderr)
+                    return
+    else:
+        file = path
+    with file.open(encoding=UTF8) as f:
+        for line in f:
+            print(line, end='', file=out)
