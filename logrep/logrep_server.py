@@ -123,24 +123,32 @@ class SearchArgs:
                 _discard_before = re.compile(_discard_before)
             except re.error as e:
                 raise HTTPException(status_code=400, detail=f"discard_before pattern {e}: {_discard_before!r}")
+        else:
+            _discard_before = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', _discard_before)
         _pattern = pattern or settings.pattern
         if _pattern and is_probably_complex_pattern(_pattern):
             try:
                 _pattern = re.compile(_pattern)
             except re.error as e:
                 raise HTTPException(status_code=400, detail=f"pattern {e}: {_pattern!r}")
+        else:
+            _pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', _pattern)
         _except_pattern = except_pattern or settings.except_pattern
         if _except_pattern and is_probably_complex_pattern(_except_pattern):
             try:
                 _except_pattern = re.compile(_except_pattern)
             except re.error as e:
                 raise HTTPException(status_code=400, detail=f"except_pattern {e}: {_except_pattern!r}")
+        else:
+            _except_pattern = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', _except_pattern)
         _discard_after = discard_after or settings.discard_after
         if _discard_after and is_probably_complex_pattern(_discard_after):
             try:
                 _discard_after = re.compile(_discard_after)
             except re.error as e:
                 raise HTTPException(status_code=400, detail=f"discard_after pattern {e}: {_discard_after!r}")
+        else:
+            _discard_after = RX_ESCAPE_FOLLOWED_BY_SPECIAL.sub('', _discard_after)
         if not _discard_before and not _pattern and not _discard_after:
             raise HTTPException(status_code=400, detail='discard_before or pattern or discard_after must be specified')
         return cls(
