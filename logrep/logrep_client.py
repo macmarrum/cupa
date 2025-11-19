@@ -8,6 +8,7 @@ import logging
 import re
 import sys
 import tomllib
+import traceback
 from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -116,28 +117,37 @@ class Arguments:
             else:
                 self.verify = (p if (p := Path(self.verify)).is_absolute() else me.parent / p).as_posix()
 
-    @staticmethod
-    def resolve_callable(callable_string: str) -> Callable:
+    @classmethod
+    def resolve_callable(cls, callable_string: str) -> Callable:
         """
         Resolve a callable from a string like 'module.submodule:function_name'.
+        Supports alternatives by using '|' as a separator.
 
         Examples:
             - 'html:escape'
             - 'xml.sax.saxutils:escape'
-            - 'mymodule.processors:custom_escape'
+            - 'mymodule.processors:custom_escape|html:escape'
         """
         if callable_string is None:
             return str
         if isinstance(callable_string, Callable):
             return callable_string
-        if ':' not in callable_string:
-            raise ValueError(f"Callable string must be in format 'module:function', got: {callable_string}")
-        module_name, func_name = callable_string.rsplit(':', 1)
-        module = importlib.import_module(module_name)
-        try:
-            return getattr(module, func_name)
-        except AttributeError:
-            raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
+        errors = []
+        for callable_string_alt in callable_string.split('|'):
+            if ':' not in callable_string_alt:
+                raise ValueError(f"Callable string must be in format 'module:function', got: {callable_string_alt}")
+            module_name, func_name = callable_string_alt.rsplit(':', 1)
+            try:
+                module = importlib.import_module(module_name)
+            except ModuleNotFoundError as e:
+                errors.append(f"{e}")
+                print(f"[{cls.__name__}.{e.__traceback__.tb_frame.f_code.co_name}] {callable_string_alt!r} {e!r}", file=sys.stderr)
+                continue
+            try:
+                return getattr(module, func_name)
+            except AttributeError:
+                raise AttributeError(f"Module '{module_name}' has no attribute '{func_name}'")
+        raise ModuleNotFoundError(f"Could not resolve callable from {callable_string!r}: {'; '.join(errors)}")
 
     @classmethod
     def from_argv(cls, argv: Sequence[str] | None = None):
